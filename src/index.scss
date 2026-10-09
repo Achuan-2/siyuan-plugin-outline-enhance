@@ -561,3 +561,6 @@
         button:first-child svg { height: 14px; }
     }
 }
+.protyle-wysiwyg div[fold='1'][data-type='NodeHeading']:before{
+    display: none;
+}
