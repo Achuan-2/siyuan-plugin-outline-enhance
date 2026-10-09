@@ -2,7 +2,7 @@
   "name": "siyuan-plugin-outline-enhance",
   "author": "Achuan-2",
   "url": "https://github.com/Achuan-2/siyuan-plugin-outline-enhance",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "minAppVersion": "3.7.0",
   "backends": [
     "all"
