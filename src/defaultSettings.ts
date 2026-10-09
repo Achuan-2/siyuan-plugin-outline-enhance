@@ -2,6 +2,7 @@ export interface OutlineSettings {
     enableListOutline: boolean;
     enableHeadingOutline: boolean;
     enableHeadingDock: boolean;
+    enableHeadingGutters: boolean;
     headingOutlineDisplayMode: "compact" | "icon";
     headingListDepth: number;
     keepCurrentHeadingExpanded: boolean;
@@ -14,6 +15,7 @@ export const getDefaultSettings = (): OutlineSettings => ({
     enableListOutline: false,
     enableHeadingOutline: true,
     enableHeadingDock: true,
+    enableHeadingGutters: false,
     headingOutlineDisplayMode: "icon",
     headingListDepth: 2,
     keepCurrentHeadingExpanded: false,
@@ -34,6 +36,7 @@ export function normalizeSettings(value: Partial<OutlineSettings> & { headingInc
         enableListOutline: typeof value.enableListOutline === "boolean" ? value.enableListOutline : defaults.enableListOutline,
         enableHeadingOutline: typeof value.enableHeadingOutline === "boolean" ? value.enableHeadingOutline : defaults.enableHeadingOutline,
         enableHeadingDock: typeof value.enableHeadingDock === "boolean" ? value.enableHeadingDock : defaults.enableHeadingDock,
+        enableHeadingGutters: typeof value.enableHeadingGutters === "boolean" ? value.enableHeadingGutters : defaults.enableHeadingGutters,
         headingOutlineDisplayMode: value.headingOutlineDisplayMode === "icon" ? "icon" : defaults.headingOutlineDisplayMode,
         headingListDepth,
         keepCurrentHeadingExpanded: typeof value.keepCurrentHeadingExpanded === "boolean"

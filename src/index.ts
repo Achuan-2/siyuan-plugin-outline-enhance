@@ -5,6 +5,7 @@ import { normalizeSettings, type OutlineSettings } from "./defaultSettings";
 import { ListOutlineController } from "./listOutline";
 import { HeadingOutlineController, type HeadingEditor } from "./headingOutline";
 import { HeadingOutlineDockView, type OpenHeadingLevelMenu } from "./headingDock";
+import { HeadingGutterController } from "./headingGutter";
 import type { HeadingFoldState } from "./headingTree";
 import { HEADING_OUTLINE_ICON, HEADING_OUTLINE_ICON_ID } from "./icons";
 import { insertOutlineSibling, insertIntoOutlineEditor, type OutlineInsertTarget, type OpenInsertMenu } from "./outlineInsert";
@@ -18,6 +19,7 @@ export default class ListOutlinePlugin extends Plugin {
     private outline?: ListOutlineController;
     private headingOutline?: HeadingOutlineController;
     private headingDock?: HeadingOutlineDockView;
+    private headingGutters?: HeadingGutterController;
     private disposed = false;
     private settingsQueue: Promise<unknown> = Promise.resolve();
     private headingFoldQueue: Promise<unknown> = Promise.resolve();
@@ -135,6 +137,7 @@ export default class ListOutlinePlugin extends Plugin {
     private protyleEvents = ["loaded-protyle-static", "loaded-protyle-dynamic", "switch-protyle", "switch-protyle-mode", "destroy-protyle"] as const;
 
     private onProtyle = (event: CustomEvent<{ protyle: IProtyle }>) => {
+        this.headingGutters?.syncEditors();
         this.headingOutline?.syncEditors(event.detail.protyle.element);
         this.headingDock?.syncEditors(event.detail.protyle.element);
         if (event.type.startsWith("loaded-")) {
@@ -154,6 +157,7 @@ export default class ListOutlinePlugin extends Plugin {
     };
 
     onLayoutReady() {
+        this.headingGutters?.syncEditors();
         this.headingOutline?.syncEditors();
         this.headingDock?.syncEditors();
         this.outline?.scheduleSync();
@@ -180,6 +184,15 @@ export default class ListOutlinePlugin extends Plugin {
     private syncFeatures() {
         this.insertMenu?.close();
         this.headingLevelMenu?.close();
+        if (this.settings.enableHeadingGutters && !this.headingGutters) {
+            this.headingGutters = new HeadingGutterController({
+                getEditors: () => getAllEditor().flatMap(editor => editor?.protyle ? [editor.protyle] : []),
+            });
+        }
+        if (!this.settings.enableHeadingGutters) {
+            this.headingGutters?.destroy();
+            this.headingGutters = undefined;
+        }
         if (this.settings.enableHeadingDock) this.registerHeadingDock();
         else this.unregisterHeadingDock();
         if (this.settings.enableListOutline && !this.outline) this.outline = new ListOutlineController({
@@ -238,6 +251,8 @@ export default class ListOutlinePlugin extends Plugin {
         this.disposed = true;
         this.insertMenu?.close();
         this.headingLevelMenu?.close();
+        this.headingGutters?.destroy();
+        this.headingGutters = undefined;
         this.outline?.destroy();
         this.outline = undefined;
         this.headingOutline?.destroy();
