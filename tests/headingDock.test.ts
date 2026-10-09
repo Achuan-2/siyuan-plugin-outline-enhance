@@ -88,6 +88,35 @@ test("大纲增强 Dock：没有可见编辑器时仍可正常挂载", () => {
     } finally { env.cleanup(); }
 });
 
+test("大纲增强 Dock：导出预览文档标题保持首位，正文顺序和父子关系保持正确", async () => {
+    const snapshot = '<div data-type="NodeHeading" data-node-id="body-one"></div>' +
+        '<div data-type="NodeHeading" data-node-id="body-two"></div>';
+    const previewTree = [{ id: "doc1", name: "文档标题", subType: "h1", blocks: [
+        { id: "body-one", content: "正文一", subType: "h2" },
+        { id: "body-two", content: "正文二", subType: "h2" },
+    ] }];
+    const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } : previewTree);
+    try {
+        env.editors[0] = { ...env.editors[0], preview: true, documentTitle: "文档标题" };
+        env.editors[0].content.innerHTML = '<h1 id="doc1">文档标题</h1>' +
+            '<h2 id="body-one">正文一</h2><h2 id="body-two">正文二</h2>';
+        env.dock.syncEditors();
+        await settle();
+        const ids = () => Array.from(env.container.querySelectorAll<HTMLButtonElement>("button[data-id]"))
+            .map(row => row.dataset.id);
+        assert.deepEqual(ids(), ["doc1", "body-one", "body-two"]);
+        env.container.querySelector<HTMLButtonElement>('[data-outline-toggle="doc1"]')!.click();
+        assert.deepEqual(ids(), ["doc1"]);
+        env.container.querySelector<HTMLButtonElement>('[data-outline-toggle="doc1"]')!.click();
+        assert.deepEqual(ids(), ["doc1", "body-one", "body-two"]);
+        let scrolled = false;
+        env.editors[0].content.querySelector<HTMLElement>("h1")!.scrollIntoView = () => { scrolled = true; };
+        env.container.querySelector<HTMLButtonElement>('[data-id="doc1"]')!.click();
+        assert.equal(scrolled, true);
+        assert.equal(env.navigations.length, 0);
+    } finally { env.cleanup(); }
+});
+
 test("大纲增强 Dock：保留行内格式，跨格式搜索和点击仍定位标题", async () => {
     const env = setup(async url => url.endsWith("checkBlockFold") ? { isFolded: false } : [{
         id: "rich", subType: "h1", nameIsHTML: true, number: "1.",

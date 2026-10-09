@@ -868,6 +868,54 @@ test("标题修改后刷新，卸载时移除目录并阻止待处理请求复�
     } finally { env.cleanup(); }
 });
 
+test("导出预览混合大纲保留文档标题首位，开头列表归入文档标题且不重复标题", () => {
+    const env = setup();
+    try {
+        const headings = flattenHeadingTree([{ id: "doc1", name: "文档标题", subType: "h1", blocks: [
+            { id: "body", content: "正文标题", subType: "h2" },
+        ] }]);
+        const snapshot = listRoot(listDOM("intro", "开头列表")) +
+            '<div data-type="NodeHeading" data-node-id="body"></div>';
+        const entries = includeListsInHeadingTree(headings, snapshot, 2, null, "doc1");
+        assert.deepEqual(entries.map(({ id, depth }) => ({ id, depth })), [
+            { id: "doc1", depth: 1 }, { id: "intro", depth: 2 }, { id: "body", depth: 2 },
+        ]);
+        assert.deepEqual(includeListsInHeadingTree(headings,
+            '<div data-type="NodeHeading" data-node-id="doc1"></div>' + snapshot, 2, null, "doc1"), entries);
+        assert.deepEqual(includeListsInHeadingTree(headings.slice(1), snapshot, 2, null, "doc1")
+            .map(entry => entry.id), ["intro", "body"]);
+        assert.deepEqual(includeListsInHeadingTree(headings.slice(0, 1), "", 2, null, "doc1"), headings.slice(0, 1));
+    } finally { env.cleanup(); }
+});
+
+test("悬浮大纲增强：导出预览文档标题保持首位，折叠标题可收起正文并支持定位", async () => {
+    const snapshot = '<div data-type="NodeHeading" data-node-id="body-one"></div>' +
+        '<div data-type="NodeHeading" data-node-id="body-two"></div>' + listRoot(listDOM("item", "列表"));
+    const previewTree = [{ id: "doc1", name: "文档标题", subType: "h1", blocks: [
+        { id: "body-one", content: "正文一", subType: "h2" },
+        { id: "body-two", content: "正文二", subType: "h2" },
+    ] }];
+    const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } : previewTree);
+    try {
+        env.editors[0] = { ...env.editors[0], preview: true };
+        env.editors[0].content.innerHTML = '<h1 id="doc1">文档标题</h1>' +
+            '<h2 id="body-one">正文一</h2><h2 id="body-two">正文二</h2>';
+        env.controller.syncEditors();
+        await settle();
+        const ids = () => Array.from(env.panel.querySelectorAll<HTMLButtonElement>("button[data-id]"))
+            .map(row => row.dataset.id);
+        assert.deepEqual(ids(), ["doc1", "body-one", "body-two"]);
+        env.panel.querySelector<HTMLButtonElement>('[data-outline-toggle="doc1"]')!.click();
+        assert.deepEqual(ids(), ["doc1"]);
+        env.panel.querySelector<HTMLButtonElement>('[data-outline-toggle="doc1"]')!.click();
+        let scrolled = false;
+        env.editors[0].content.querySelector<HTMLElement>("h1")!.scrollIntoView = () => { scrolled = true; };
+        env.panel.querySelector<HTMLButtonElement>('[data-id="doc1"]')!.click();
+        assert.equal(scrolled, true);
+        assert.equal(env.navigations.length, 0);
+    } finally { env.cleanup(); }
+});
+
 test("预览模式直接定位预览标题，关闭编辑器后隐藏目录", async () => {
     const env = setup();
     try {

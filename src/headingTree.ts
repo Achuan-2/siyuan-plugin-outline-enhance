@@ -200,21 +200,25 @@ export function findEmbeddedOutlineTarget(root: Element, id: string, embedId: st
 
 /** 用完整文档 DOM 确定列表和页签位置，标题文字及层级仍沿用思源原生大纲。 */
 export function includeListsInHeadingTree(headings: HeadingEntry[], dom: string, defaultDepth: number,
-    liveRoot?: Element | null): HeadingEntry[] {
+    liveRoot?: Element | null, previewDocumentId?: string): HeadingEntry[] {
     const document = new DOMParser().parseFromString(dom, "text/html");
     mergeRenderedEmbeds(document, liveRoot);
     const headingMap = new Map(headings.map(entry => [entry.id, entry]));
     const listItems = new Map<string, HeadingEntry>();
-    const entries: HeadingEntry[] = [];
-    const seen = new Set<string>();
+    // 导出预览会把文档标题作为 H1 加入原生大纲，但 getBlockDOM 的正文不含该标题。
+    // 预先保留它的首位和深度，避免被末尾的快照缺失兜底逻辑追加到正文后面。
+    const documentTitle = previewDocumentId ? headingMap.get(previewDocumentId) : undefined;
+    const entries: HeadingEntry[] = documentTitle ? [documentTitle] : [];
+    const seen = new Set<string>(documentTitle ? [documentTitle.id] : []);
     const seenParagraphs = new Set<string>();
     const rootContainers = new Set(findRootLists(document.body));
-    let headingDepth = 0;
+    let headingDepth = documentTitle?.depth ?? 0;
     const selector = `[data-type="NodeHeading"], ${PARAGRAPH_SELECTOR}, ${OUTLINE_CONTAINER_SELECTOR}, ${OUTLINE_ITEM_SELECTOR}`;
     for (const node of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
         const id = node.dataset.nodeId || "";
         const heading = headingMap.get(id);
         if (heading) {
+            if (seen.has(id)) continue;
             entries.push(heading);
             seen.add(id);
             headingDepth = heading.depth;

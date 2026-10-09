@@ -352,7 +352,7 @@ export class HeadingOutlineDockView {
             this.entries = flattenHeadingTree(nodes);
             if (settings.headingListDepth > 0) {
                 this.entries = includeListsInHeadingTree(this.entries, snapshot?.dom || "", settings.headingListDepth,
-                    editor.content);
+                    editor.content, editor.preview ? editor.rootID : undefined);
             }
             this.status.textContent = "";
             this.render();
