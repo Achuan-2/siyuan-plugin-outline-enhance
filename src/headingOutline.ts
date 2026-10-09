@@ -4,6 +4,7 @@ import { expandCollapsedAncestors, filterCollapsedEntries, filterHeadingListEntr
 import { getDefaultSettings, MAX_DEPTH, type OutlineSettings } from "./defaultSettings";
 import { createOutlineFoldButton, createOutlineRow, setOutlineCurrent } from "./outlineView";
 import type { OpenInsertMenu } from "./outlineInsert";
+import type { OpenHeadingLevelMenu } from "./headingDock";
 import { HEADING_OUTLINE_ICON_ID } from "./icons";
 import { applyListUpdateOperations, canDragListItem, createHeadingMovePlan, createListItemMovePlan,
     type HeadingDropPosition, type OutlineMoveOperation } from "./headingDrag";
@@ -25,9 +26,9 @@ interface Options {
     navigate(id: string, folded: boolean): void;
     reportError(message: string): void;
     openInsertMenu?: OpenInsertMenu;
+    openHeadingLevelMenu?: OpenHeadingLevelMenu;
     getSettings?(): OutlineSettings;
     setListDepth?(depth: number): Promise<unknown>;
-    setKeepCurrentHeadingExpanded?(enabled: boolean): Promise<unknown>;
     getFoldState?(documentId: string): HeadingFoldState | undefined;
     saveFoldState?(documentId: string, state: HeadingFoldState): Promise<unknown>;
     isMobile?(): boolean;
@@ -63,7 +64,7 @@ export class HeadingOutlineController {
     private expandedListEntryIds = new Set<string>();
     private expandedTabIds = new Set<string>();
     private showListEntries = false;
-    private keepCurrentExpandButton?: HTMLButtonElement;
+    private expandedHeadingLevel = 6;
     private currentEntryId = "";
     private expanded = false;
     private menuOpen = false;
@@ -125,23 +126,27 @@ export class HeadingOutlineController {
         };
         const locate = createActionButton("iconFocus", "定位当前位置");
         locate.addEventListener("click", () => this.locateCurrent());
-        this.keepCurrentExpandButton = createActionButton("iconPin", "保存当前层级展开");
-        this.keepCurrentExpandButton.addEventListener("click", async () => {
-            const enabled = !this.settings.keepCurrentHeadingExpanded;
-            this.keepCurrentExpandButton!.disabled = true;
-            try {
-                await this.options.setKeepCurrentHeadingExpanded?.(enabled);
-                if (!this.disposed) {
-                    this.syncKeepCurrentExpandButton();
-                    if (enabled) this.setCurrent(this.resolveCurrentLocation());
+        const expandLevel = createActionButton("iconExpandLevel", "展开层级");
+        expandLevel.dataset.action = "expand-level";
+        expandLevel.addEventListener("click", event => {
+            // 避免思源的全局 click 处理器立即关闭刚打开的菜单。
+            event.preventDefault();
+            event.stopPropagation();
+            if (!this.options.openHeadingLevelMenu || !this.editor) return;
+            const rootID = this.editor.rootID;
+            this.options.openHeadingLevelMenu(expandLevel, this.expandedHeadingLevel, level => {
+                if (!this.disposed && this.editor?.rootID === rootID) this.expandToHeadingLevel(level);
+            }, () => {
+                this.menuOpen = false;
+                if (this.disposed) return;
+                if (!this.panel.matches(":hover") && !(document.activeElement && this.panel.contains(document.activeElement))) {
+                    this.setExpanded(false);
                 }
-            } catch (error) {
-                if (!this.disposed) this.options.reportError("保存当前层级展开设置失败，请重试。");
-            } finally {
-                if (!this.disposed) this.keepCurrentExpandButton!.disabled = false;
-            }
+            });
+            // 新菜单打开时会先关闭旧菜单，随后再标记状态，避免旧回调清掉新状态。
+            this.menuOpen = true;
+            this.setExpanded(true);
         });
-        this.syncKeepCurrentExpandButton();
         const refresh = createActionButton("iconRefresh", "刷新大纲增强");
         refresh.addEventListener("click", () => void this.refresh());
         const close = createActionButton("iconClose", "关闭大纲增强");
@@ -179,7 +184,7 @@ export class HeadingOutlineController {
         });
         header.append(title);
         if (options.setListDepth) header.append(this.listDepthSelect);
-        header.append(locate, this.keepCurrentExpandButton, refresh, close);
+        header.append(locate, expandLevel, refresh, close);
         this.body.className = "list-outline-floating__body";
         this.status.className = "list-outline-floating__status";
         this.status.setAttribute("role", "status");
@@ -320,12 +325,25 @@ export class HeadingOutlineController {
 
     private get settings() { return this.options.getSettings?.() || getDefaultSettings(); }
 
-    private syncKeepCurrentExpandButton() {
-        const button = this.keepCurrentExpandButton;
-        if (!button) return;
-        const enabled = this.settings.keepCurrentHeadingExpanded;
-        button.classList.toggle("b3-button--primary", enabled);
-        button.setAttribute("aria-pressed", String(enabled));
+    /** 沿用 Dock：H1-H5 折叠该级及更深标题，H6 展开全部标题和页签。 */
+    private expandToHeadingLevel(targetLevel: number) {
+        const level = Math.max(1, Math.min(6, Math.trunc(targetLevel)));
+        this.expandedHeadingLevel = level;
+        this.showListEntries = true;
+        this.collapsedEntryIds.clear();
+        if (level < 6) {
+            const collapsibleIds = getCollapsibleEntryIds(this.entries);
+            for (const entry of this.entries) {
+                const isHeading = !entry.kind || entry.kind === "heading";
+                if (isHeading && entry.level >= level && collapsibleIds.has(entry.id)) {
+                    this.collapsedEntryIds.add(entry.id);
+                }
+            }
+        }
+        this.expandedTabIds = level === 6
+            ? new Set(this.entries.filter(entry => entry.kind === "tab").map(entry => entry.id)) : new Set();
+        this.saveFoldState();
+        this.render();
     }
 
     private saveFoldState() {
@@ -369,7 +387,6 @@ export class HeadingOutlineController {
 
     refreshSettings() {
         this.syncDisplayMode();
-        this.syncKeepCurrentExpandButton();
         const depth = this.settings.headingListDepth;
         if (Number(this.listDepthSelect.value) !== depth) {
             this.showListEntries = depth > 0;

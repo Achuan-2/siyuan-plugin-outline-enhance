@@ -12,6 +12,7 @@ export type OpenHeadingLevelMenu = (
     target: HTMLElement,
     currentLevel: number,
     selectLevel: (level: number) => void,
+    onClose?: () => void,
 ) => void;
 
 export interface HeadingDockOptions {

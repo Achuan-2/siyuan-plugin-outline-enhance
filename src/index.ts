@@ -220,12 +220,10 @@ export default class ListOutlinePlugin extends Plugin {
             renderMath: element => ProtyleMethod.mathRender(element),
             getSettings: () => this.settings,
             setListDepth: depth => this.saveSettings({ ...this.settings, headingListDepth: depth }),
-            setKeepCurrentHeadingExpanded: enabled => this.saveSettings({
-                ...this.settings, keepCurrentHeadingExpanded: enabled,
-            }),
             getFoldState: documentId => this.headingFoldStates[documentId],
             saveFoldState: this.saveHeadingFoldState,
             openInsertMenu: this.openInsertMenu,
+            openHeadingLevelMenu: this.openHeadingLevelMenu,
             request: this.request,
             navigate: (id, folded) => {
                 const mobile = getFrontend().includes("mobile");
@@ -342,10 +340,11 @@ export default class ListOutlinePlugin extends Plugin {
         menu.open({ x: event.clientX, y: event.clientY });
     };
 
-    private openHeadingLevelMenu: OpenHeadingLevelMenu = (target, currentLevel, selectLevel) => {
+    private openHeadingLevelMenu: OpenHeadingLevelMenu = (target, currentLevel, selectLevel, onClose) => {
         this.headingLevelMenu?.close();
         const menu = new Menu(`${this.name}-heading-expand-level`, () => {
             if (this.headingLevelMenu === menu) this.headingLevelMenu = undefined;
+            onClose?.();
         });
         this.headingLevelMenu = menu;
         for (let level = 1; level <= 6; level++) {

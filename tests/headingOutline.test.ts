@@ -28,6 +28,7 @@ function setup(request?: (url: string, data: Record<string, unknown>) => Promise
     const calls: { url: string; data: Record<string, unknown> }[] = [];
     const navigations: { id: string; folded: boolean }[] = [];
     const menus: any[] = [];
+    const levelMenus: { currentLevel: number; selectLevel(level: number): void; onClose?: () => void }[] = [];
     let settings = normalizeSettings(initialSettings);
     const foldStates: Record<string, { collapsedIds: string[]; showLists: boolean; expandedListIds?: string[];
         expandedTabIds?: string[] }> = {};
@@ -36,18 +37,15 @@ function setup(request?: (url: string, data: Record<string, unknown>) => Promise
         newNodeID: () => "new-child-list",
         getSettings: () => settings,
         setListDepth: async depth => { settings = { ...settings, headingListDepth: depth }; },
-        setKeepCurrentHeadingExpanded: async enabled => {
-            settings = { ...settings, keepCurrentHeadingExpanded: enabled };
-            controller.refreshSettings();
-        },
         getFoldState: documentId => foldStates[documentId],
         saveFoldState: async (documentId, state) => { foldStates[documentId] = state; },
         request: async (url, data) => { calls.push({ url, data }); return request ? request(url, data) : url.endsWith("checkBlockFold") ? { isFolded: true } : tree; },
         navigate: (id, folded) => navigations.push({ id, folded }), reportError: () => {},
         openInsertMenu: (event, target) => { event.preventDefault(); menus.push(target); },
+        openHeadingLevelMenu: (_target, currentLevel, selectLevel, onClose) => levelMenus.push({ currentLevel, selectLevel, onClose }),
     });
     const panel = win.document.querySelector<HTMLElement>('.heading-outline-floating')!;
-    return { win, editors, initialEditor, calls, navigations, transactions, menus, controller, panel, foldStates,
+    return { win, editors, initialEditor, calls, navigations, transactions, menus, levelMenus, controller, panel, foldStates,
         setSettings: (value: Parameters<typeof normalizeSettings>[0]) => { settings = normalizeSettings(value); controller.refreshSettings(); },
         cleanup: () => { controller.destroy(); win.close(); } };
 }
@@ -115,17 +113,75 @@ test("悬浮大纲增强：默认只显示标题，单独展开标题可显示�
         current.dataset.nodeId = "h6";
         env.editors[0].content.append(current);
         current.click();
-        const keep = env.panel.querySelector<HTMLButtonElement>('button[aria-label="保存当前层级展开"]')!;
-        assert.equal(keep.getAttribute("aria-pressed"), "false");
-        keep.click();
+        env.setSettings({ headingListDepth: 2, keepCurrentHeadingExpanded: true });
         await settle();
-        assert.equal(keep.getAttribute("aria-pressed"), "true");
+        current.click();
         assert.deepEqual(ids(), ["h1", "h3", "h6", "h2"]);
         assert.deepEqual(env.foldStates.doc1.collapsedIds, []);
 
         env.panel.querySelector<HTMLButtonElement>('button[data-outline-toggle="h6"]')!.click();
         assert.deepEqual(ids(), ["h1", "h3", "h6", "item", "h2"]);
         assert.deepEqual(env.foldStates.doc1.expandedListIds, ["h6"]);
+    } finally { env.cleanup(); }
+});
+
+test("悬浮大纲增强：展开层级菜单控制标题、列表和页签并保存折叠状态", async () => {
+    const snapshot = '<div data-type="NodeHeading" data-node-id="h1"></div>' +
+        '<div data-type="NodeHeading" data-node-id="h3"></div>' +
+        '<div data-type="NodeHeading" data-node-id="h6"></div>' +
+        listRoot(listDOM("item", "列表项")) +
+        '<div data-type="NodeHeading" data-node-id="h2"></div>' +
+        tabsRoot("tabs", tabDOM("tab-one", "页签", listRoot(listDOM("tab-item", "页签列表"))));
+    const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } : tree,
+        false, true, { headingListDepth: 2 });
+    try {
+        await settle();
+        const ids = () => Array.from(env.panel.querySelectorAll<HTMLButtonElement>("button[data-id]"))
+            .map(row => row.dataset.id);
+        const button = env.panel.querySelector<HTMLButtonElement>('button[aria-label="展开层级"]')!;
+        assert.ok(button);
+        assert.equal(button.querySelector("use")?.getAttribute("href"), "#iconExpandLevel");
+        assert.equal(env.panel.querySelector('button[aria-label="保存当前层级展开"]'), null);
+        let bubbled = false;
+        const onDocumentClick = () => { bubbled = true; };
+        env.win.document.addEventListener("click", onDocumentClick);
+        button.click();
+        env.win.document.removeEventListener("click", onDocumentClick);
+        assert.equal(bubbled, false);
+        assert.equal(env.levelMenus.at(-1)!.currentLevel, 6);
+        // JSDOM 不会根据合成 pointerleave 更新 :hover，显式模拟鼠标已离开。
+        const matches = env.panel.matches.bind(env.panel);
+        env.panel.matches = selector => selector === ":hover" ? false : matches(selector);
+        env.panel.dispatchEvent(new env.win.Event("pointerleave"));
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
+
+        env.levelMenus.at(-1)!.selectLevel(1);
+        assert.deepEqual(ids(), ["h1", "h2"]);
+        assert.deepEqual(env.foldStates.doc1.collapsedIds, ["h1", "h3", "h6", "h2"]);
+        env.levelMenus.at(-1)!.onClose!();
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
+
+        button.click();
+        assert.equal(env.levelMenus.at(-1)!.currentLevel, 1);
+        env.levelMenus.at(-1)!.selectLevel(3);
+        assert.deepEqual(ids(), ["h1", "h3", "h2", "tab-one"]);
+        env.levelMenus.at(-1)!.selectLevel(6);
+        assert.deepEqual(ids(), ["h1", "h3", "h6", "item", "h2", "tab-one", "tab-item"]);
+        assert.deepEqual(env.foldStates.doc1.collapsedIds, []);
+        assert.deepEqual(env.foldStates.doc1.expandedTabIds, ["tab-one"]);
+
+        env.levelMenus.at(-1)!.selectLevel(3);
+        env.editors[0] = { ...env.editors[0], rootID: "doc2" };
+        env.controller.syncEditors();
+        await settle();
+        const savedDoc1 = structuredClone(env.foldStates.doc1);
+        env.levelMenus.at(-1)!.selectLevel(6);
+        assert.deepEqual(env.foldStates.doc1, savedDoc1);
+        assert.equal(env.foldStates.doc2, undefined);
+        env.editors[0] = { ...env.editors[0], rootID: "doc1" };
+        env.controller.syncEditors();
+        await settle();
+        assert.deepEqual(ids(), ["h1", "h3", "h2", "tab-one"]);
     } finally { env.cleanup(); }
 });
 
@@ -399,7 +455,7 @@ test("悬浮大纲增强：保持当前层级展开时，点击列表会显示�
             .dispatchEvent(new env.win.MouseEvent("click", { bubbles: true }));
         assert.deepEqual(ids(), ["h1", "tab-one"]);
 
-        env.panel.querySelector<HTMLButtonElement>('button[aria-label="保存当前层级展开"]')!.click();
+        env.setSettings({ headingListDepth: 3, keepCurrentHeadingExpanded: true });
         await settle();
         clickEditor("h1");
         const tabToggle = env.panel.querySelector<HTMLButtonElement>('button[data-outline-toggle="tab-one"]');
