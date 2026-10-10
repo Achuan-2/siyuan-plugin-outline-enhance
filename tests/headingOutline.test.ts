@@ -36,7 +36,7 @@ function setup(request?: (url: string, data: Record<string, unknown>) => Promise
         isMobile: () => mobile,
         newNodeID: () => "new-child-list",
         getSettings: () => settings,
-        setListDepth: async depth => { settings = { ...settings, headingListDepth: depth }; },
+        setListDepth: async depth => { settings = normalizeSettings({ ...settings, headingListDepth: depth }); },
         getFoldState: documentId => foldStates[documentId],
         saveFoldState: async (documentId, state) => { foldStates[documentId] = state; },
         request: async (url, data) => { calls.push({ url, data }); return request ? request(url, data) : url.endsWith("checkBlockFold") ? { isFolded: true } : tree; },
@@ -475,6 +475,43 @@ test("悬浮大纲增强：保持当前层级展开时，点击列表会显示�
         clickEditor("tab-item");
         assert.deepEqual(ids(), ["h1", "one", "two", "tab-one", "tab-item"]);
         assert.deepEqual(env.foldStates.doc1.expandedTabIds, ["tab-one"]);
+    } finally { env.cleanup(); }
+});
+
+test("列表层级允许保存零值，重新读取后仍不显示列表", () => {
+    const saved = normalizeSettings({ headingListDepth: 0 });
+    assert.equal(saved.headingListDepth, 0);
+    assert.equal(normalizeSettings(JSON.parse(JSON.stringify(saved))).headingListDepth, 0);
+    assert.equal(normalizeSettings({ headingListDepth: "0" as any }).headingListDepth, 0);
+    assert.equal(normalizeSettings({ headingListDepth: 99 }).headingListDepth, 20);
+    assert.equal(normalizeSettings({ defaultDepth: 0 }).defaultDepth, 3);
+});
+
+test("列表层级从两层切换到不显示后，保存和刷新不闪回", async () => {
+    const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: mixedDOM } : tree);
+    try {
+        await settle();
+        const select = env.panel.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
+        assert.equal(select.value, "2");
+        const reads = env.calls.filter(call => call.url.endsWith("getBlockDOM")).length;
+        select.value = "0";
+        select.dispatchEvent(new env.win.Event("change"));
+        for (let attempt = 0; attempt < 30 && select.disabled; attempt++) await settle();
+        assert.equal(select.disabled, false);
+        assert.equal(select.value, "0");
+        assert.equal(env.panel.querySelector('[data-id="three"]'), null);
+        env.controller.refreshSettings();
+        await settle();
+        assert.equal(select.value, "0");
+        assert.equal(env.calls.filter(call => call.url.endsWith("getBlockDOM")).length, reads);
+        assert.ok(env.panel.querySelector('[data-id="h1"]'));
+
+        select.value = "2";
+        select.dispatchEvent(new env.win.Event("change"));
+        for (let attempt = 0; attempt < 30 && select.disabled; attempt++) await settle();
+        assert.equal(select.disabled, false);
+        assert.equal(select.value, "2");
+        assert.ok(env.panel.querySelector('[data-id="three"]'));
     } finally { env.cleanup(); }
 });
 

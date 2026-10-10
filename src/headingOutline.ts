@@ -50,7 +50,7 @@ interface OutlineDragState {
 }
 
 const DESKTOP_FLOATING_RIGHT_GAP = 48;
-const DESKTOP_FLOATING_BUTTON_TOP_OFFSET = 32;
+const DESKTOP_FLOATING_BUTTON_TOP_OFFSET = 40;
 
 /** 数据与跳转流程参考思源 layout/dock/Outline.ts；面板使用插件自己的悬浮视图。 */
 export class HeadingOutlineController {
