@@ -510,8 +510,12 @@
     }
 
 }
+.heading-gutter-scroller {
+    position: relative;
+}
+
 .heading-gutter-persistent {
-    position: fixed;
+    position: absolute;
     z-index: 1;
     display: flex;
     box-sizing: border-box;

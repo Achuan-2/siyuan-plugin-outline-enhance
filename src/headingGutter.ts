@@ -2,10 +2,12 @@ import type { IProtyle } from "siyuan";
 
 const HEADING_SELECTOR = '[data-type="NodeHeading"][data-node-id]';
 const ROW_CLASS = "heading-gutter-persistent";
+const SCROLLER_CLASS = "heading-gutter-scroller";
 
 interface EditorView {
     protyle: IProtyle;
     content: HTMLElement;
+    scroller: HTMLElement;
     rows: Map<HTMLElement, HTMLElement>;
     observer: MutationObserver;
     gutterObserver: MutationObserver;
@@ -38,7 +40,7 @@ function getHeadingAnchor(heading: HTMLElement, content: HTMLElement) {
         : { rect: heading.getBoundingClientRect(), space };
 }
 
-/** 常驻控件放在编辑器外层，避免进入正文序列化、复制和撤销数据。 */
+/** 控件位于正文外的滚动容器内，同步滚动且不进入正文序列化、复制和撤销数据。 */
 export class HeadingGutterController {
     private views = new Map<HTMLElement, EditorView>();
     private frame = 0;
@@ -57,22 +59,25 @@ export class HeadingGutterController {
         const active = new Set<HTMLElement>();
         for (const protyle of this.options.getEditors()) {
             const content = protyle.wysiwyg?.element;
+            const scroller = protyle.contentElement || content?.parentElement;
             if (!content || !protyle.element.isConnected || !protyle.gutter ||
+                !scroller || scroller === content || !scroller.contains(content) ||
                 protyle.options.render?.gutter === false ||
                 (protyle.preview?.element && !protyle.preview.element.classList.contains("fn__none"))) continue;
             active.add(protyle.element);
             let view = this.views.get(protyle.element);
-            if (view && (view.content !== content || view.protyle.gutter !== protyle.gutter)) {
+            if (view && (view.content !== content || view.scroller !== scroller || view.protyle.gutter !== protyle.gutter)) {
                 this.removeView(view);
                 view = undefined;
             }
             if (!view) {
                 view = {
-                    protyle, content, rows: new Map(),
+                    protyle, content, scroller, rows: new Map(),
                     observer: new MutationObserver(() => this.refreshRows(view!)),
                     gutterObserver: new MutationObserver(this.scheduleLayout),
                 };
                 this.views.set(protyle.element, view);
+                scroller.classList.add(SCROLLER_CLASS);
                 view.observer.observe(content, { subtree: true, childList: true, characterData: true,
                     attributes: true, attributeFilter: ["fold", "data-subtype", "data-type", "data-node-id", "class", "style"] });
                 view.gutterObserver.observe(protyle.gutter.element, { subtree: true, childList: true,
@@ -81,6 +86,7 @@ export class HeadingGutterController {
                     view.resizeObserver = new ResizeObserver(this.scheduleLayout);
                     view.resizeObserver.observe(protyle.element);
                     view.resizeObserver.observe(content);
+                    view.resizeObserver.observe(scroller);
                 }
                 this.refreshRows(view);
             } else view.protyle = protyle;
@@ -107,14 +113,18 @@ export class HeadingGutterController {
                 row = document.createElement("div");
                 // 不使用 protyle-gutters 类：原生 render 会清空其他带该类的元素。
                 row.className = ROW_CLASS;
+                row.hidden = true;
                 const block = this.createButton("标题块菜单", "iconH1");
                 const fold = this.createButton("折叠标题", "iconPlay");
                 fold.className = "heading-gutter-persistent__fold";
                 row.append(block, fold);
-                row.addEventListener("mousedown", event => { if (event.button === 0) event.preventDefault(); });
+                row.addEventListener("mousedown", event => {
+                    if (event.button === 0) event.preventDefault();
+                    event.stopPropagation();
+                });
                 row.addEventListener("click", event => this.activate(view, heading, event));
                 row.addEventListener("contextmenu", event => this.activate(view, heading, event));
-                view.protyle.element.append(row);
+                view.scroller.append(row);
                 view.rows.set(heading, row);
             }
             const block = row.children[0] as HTMLButtonElement;
@@ -174,14 +184,15 @@ export class HeadingGutterController {
     };
 
     private layout(view: EditorView) {
-        const viewport = (view.protyle.contentElement || view.content.parentElement)!.getBoundingClientRect();
+        const viewport = view.scroller.getBoundingClientRect();
         const pane = view.protyle.element.closest(".layout-tab-container")?.getBoundingClientRect() || viewport;
         const native = view.protyle.gutter!.element;
         const nativeVisible = !native.classList.contains("fn__none") && native.getClientRects().length > 0;
         const nativeHeadingIds = new Set(nativeVisible ? Array.from(native.querySelectorAll('[data-type="NodeHeading"]'))
             .map(button => button.getAttribute("data-node-id")) : []);
-        const float = view.protyle.element.closest<HTMLElement>(".layout--float");
-        const fixedOrigin = float && getComputedStyle(float).transform !== "none" ? float.getBoundingClientRect() : null;
+        // absolute 坐标以滚动容器的内边框为原点，加入滚动量后位置不随滚动重算漂移。
+        const originLeft = viewport.left + view.scroller.clientLeft - view.scroller.scrollLeft;
+        const originTop = viewport.top + view.scroller.clientTop - view.scroller.scrollTop;
         const fontSize = Number(window.siyuan?.config?.editor?.fontSize) || 16;
         const lineHeight = Math.floor(fontSize * 1.625);
         for (const [heading, row] of view.rows) {
@@ -201,13 +212,14 @@ export class HeadingGutterController {
             const margin = anchor.rect.height < lineHeight + 8 ||
                 (anchor.rect.height > lineHeight + 8 && anchor.rect.height < lineHeight * 2 + 8)
                 ? (anchor.rect.height - height) / 2 : 0;
-            const top = Math.max(anchor.rect.top + margin, viewport.top);
+            // 超出顶部时裁剪控件，不将它钉在视口顶部，保持与标题的相对位置。
+            const top = anchor.rect.top + margin;
             const actualWidth = row.offsetWidth;
             const actualHeight = row.offsetHeight;
             const left = compressed ? anchor.rect.left - actualWidth - anchor.space / 2 + 3 - 4 :
                 anchor.rect.left - actualWidth - anchor.space - 4;
-            row.style.left = `${left - (fixedOrigin?.left || 0)}px`;
-            row.style.top = `${top - (fixedOrigin?.top || 0)}px`;
+            row.style.left = `${left - originLeft}px`;
+            row.style.top = `${top - originTop}px`;
             row.style.clipPath = `inset(${Math.max(0, Math.max(viewport.top, pane.top) - top)}px ${
                 Math.max(0, left + actualWidth - Math.min(viewport.right, pane.right))}px ${
                 Math.max(0, top + actualHeight - Math.min(viewport.bottom, pane.bottom))}px ${
@@ -221,6 +233,7 @@ export class HeadingGutterController {
         view.resizeObserver?.disconnect();
         for (const row of view.rows.values()) row.remove();
         view.rows.clear();
+        view.scroller.classList.remove(SCROLLER_CLASS);
         this.views.delete(view.protyle.element);
     }
 

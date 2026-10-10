@@ -73,6 +73,8 @@ test("控件位于正文外，遵循原生间距和垂直定位，标题级别�
         await settle();
         const row = env.row();
         assert.equal(env.protyle.wysiwyg.element.querySelector("button"), null);
+        assert.equal(row.parentElement, env.protyle.contentElement);
+        assert.equal(env.protyle.contentElement.classList.contains("heading-gutter-scroller"), true);
         assert.equal(row.style.left, "58px");
         assert.equal(row.style.top, "88px");
         assert.equal(row.querySelector("use")!.getAttribute("href"), "#iconH2");
@@ -83,6 +85,82 @@ test("控件位于正文外，遵循原生间距和垂直定位，标题级别�
         assert.equal(row.children[1].getAttribute("aria-expanded"), "false");
         env.heading.remove();
         await settle();
+        assert.equal(env.row(), null);
+    } finally { env.cleanup(); }
+});
+
+test("滚动容器含边框和偏移时，纵向及横向滚动保持控件与标题的内容坐标不变", async () => {
+    const env = setup();
+    try {
+        const scroller = env.protyle.contentElement;
+        Object.defineProperty(scroller, "clientLeft", { configurable: true, value: 2 });
+        Object.defineProperty(scroller, "clientTop", { configurable: true, value: 3 });
+        scroller.getBoundingClientRect = () => ({ left: 20, top: 40, right: 620, bottom: 540,
+            width: 600, height: 500 } as DOMRect);
+        env.heading.getBoundingClientRect = () => {
+            const left = 122 - scroller.scrollLeft;
+            const top = 123 - scroller.scrollTop;
+            return { left, top, right: left + 400, bottom: top + 50, width: 400, height: 50 } as DOMRect;
+        };
+        await settle();
+        assert.equal(env.row().style.left, "58px");
+        assert.equal(env.row().style.top, "88px");
+        for (const [scrollTop, scrollLeft] of [[30, 10], [65, 20], [0, 0]]) {
+            scroller.scrollTop = scrollTop;
+            scroller.scrollLeft = scrollLeft;
+            scroller.dispatchEvent(new env.win.Event("scroll"));
+            await settle();
+            assert.equal(env.row().hidden, false);
+            assert.equal(env.row().style.left, "58px");
+            assert.equal(env.row().style.top, "88px");
+        }
+    } finally { env.cleanup(); }
+});
+
+test("标题滚出顶部时控件按原位置裁剪，不吸附到视口顶部，滚回后恢复", async () => {
+    const env = setup();
+    try {
+        const scroller = env.protyle.contentElement;
+        env.heading.getBoundingClientRect = () => {
+            const top = 80 - scroller.scrollTop;
+            return { left: 100, top, right: 600, bottom: top + 50, width: 500, height: 50 } as DOMRect;
+        };
+        await settle();
+        scroller.scrollTop = 100;
+        scroller.dispatchEvent(new env.win.Event("scroll"));
+        await settle();
+        assert.equal(env.row().hidden, false);
+        assert.equal(env.row().style.top, "88px");
+        assert.equal(env.row().style.clipPath, "inset(12px 0px 0px 0px)");
+        scroller.scrollTop = 140;
+        scroller.dispatchEvent(new env.win.Event("scroll"));
+        await settle();
+        assert.equal(env.row().hidden, true);
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new env.win.Event("scroll"));
+        await settle();
+        assert.equal(env.row().hidden, false);
+        assert.equal(env.row().style.top, "88px");
+        assert.equal(env.row().style.clipPath, "inset(0px 0px 0px 0px)");
+    } finally { env.cleanup(); }
+});
+
+test("滚动容器替换和销毁时迁移控件并清理定位类", async () => {
+    const env = setup();
+    try {
+        await settle();
+        const previous = env.protyle.contentElement;
+        const scroller = env.win.document.createElement("div");
+        previous.before(scroller);
+        scroller.append(env.protyle.wysiwyg.element);
+        env.protyle.contentElement = scroller;
+        env.controller.syncEditors();
+        await settle();
+        assert.equal(previous.querySelector(".heading-gutter-persistent"), null);
+        assert.equal(previous.classList.contains("heading-gutter-scroller"), false);
+        assert.equal(env.row().parentElement, scroller);
+        env.controller.destroy();
+        assert.equal(scroller.classList.contains("heading-gutter-scroller"), false);
         assert.equal(env.row(), null);
     } finally { env.cleanup(); }
 });
