@@ -25,13 +25,14 @@ export const getDefaultSettings = (): OutlineSettings => ({
 
 export function normalizeSettings(value: Partial<OutlineSettings> & { headingIncludeLists?: boolean } = {}): OutlineSettings {
     const defaults = getDefaultSettings();
-    const integer = (input: unknown, fallback: number, max: number) => {
+    const integer = (input: unknown, fallback: number, max: number, min = 1) => {
         const number = Number(input);
-        return Number.isFinite(number) && number >= 1 ? Math.min(max, Math.floor(number)) : fallback;
+        return Number.isFinite(number) && number >= min ? Math.min(max, Math.floor(number)) : fallback;
     };
     const headingListDepth = value.headingListDepth === undefined
         ? (value.headingIncludeLists ? integer(value.defaultDepth, defaults.defaultDepth, MAX_DEPTH) : defaults.headingListDepth)
-        : Math.max(0, integer(value.headingListDepth, defaults.headingListDepth, MAX_DEPTH));
+        // 0 表示不显示列表；独立列表的 defaultDepth 仍须至少为 1。
+        : integer(value.headingListDepth, defaults.headingListDepth, MAX_DEPTH, 0);
     return {
         enableListOutline: typeof value.enableListOutline === "boolean" ? value.enableListOutline : defaults.enableListOutline,
         enableHeadingOutline: typeof value.enableHeadingOutline === "boolean" ? value.enableHeadingOutline : defaults.enableHeadingOutline,
