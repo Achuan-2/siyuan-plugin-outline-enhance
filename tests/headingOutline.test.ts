@@ -491,7 +491,8 @@ test("列表层级从两层切换到不显示后，保存和刷新不闪回", as
     const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: mixedDOM } : tree);
     try {
         await settle();
-        const select = env.panel.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
+        env.panel.querySelector<HTMLButtonElement>('[data-action="outline-settings"]')!.click();
+        const select = env.win.document.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
         assert.equal(select.value, "2");
         const reads = env.calls.filter(call => call.url.endsWith("getBlockDOM")).length;
         select.value = "0";
@@ -515,12 +516,13 @@ test("列表层级从两层切换到不显示后，保存和刷新不闪回", as
     } finally { env.cleanup(); }
 });
 
-test("列表层级下拉框即时生效，不显示时不读全文，混合列表支持定位和右键菜单", async () => {
+test("列表层级快捷设置即时生效，不显示时不读全文，混合列表支持定位和右键菜单", async () => {
     const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: mixedDOM } : url.endsWith("checkBlockFold") ? { isFolded: true } : tree);
     try {
         await settle();
         assert.equal(env.calls.some(call => call.url.endsWith("getBlockDOM")), false);
-        const select = env.panel.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
+        env.panel.querySelector<HTMLButtonElement>('[data-action="outline-settings"]')!.click();
+        const select = env.win.document.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
         assert.equal(select.value, "0");
         select.value = "2";
         select.dispatchEvent(new env.win.Event("change"));

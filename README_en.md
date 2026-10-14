@@ -5,11 +5,12 @@ The plugin provides independently switchable floating heading outline, persisten
 - **Right-side Heading Outline Dock**: Enable "Right-side Heading Outline Dock" in plugin settings to register a persistent dock in SiYuan's right sidebar. It supports search, selectable list depth, click navigation, right-click sibling insertion, and automatic highlighting and scrolling based on the block under the editor pointer.
 - **Floating Heading Outline**: Displays the outline on the right side of the editor, auto-collapsing to minimalist lines and expanding on hover.
 - **Sibling Insertion**: Right-click a heading or list entry to insert a sibling above or below it. A heading inserted below follows the entire current section, matching SiYuan's native outline behavior.
-- **List Depth**: Use the heading panel/dock or plugin settings dropdown to hide lists or include 1–20 levels beneath their headings in document order. The option defaults to hidden and is saved automatically. Per-list depth still takes priority, blockquotes are excluded, and the setting remains independent of the floating list panel.
+- **Quick Settings**: Click the settings button beside the dock search field or in the floating heading toolbar to hide lists, show 1–20 levels, or filter completed tasks. Plugin settings define global defaults (2 levels and filtering off). Quick changes apply only to the current document and are saved to its root block attributes. Each option inherits its global default until overridden; "Restore global settings" removes both document overrides. Per-list depth still takes priority and blockquotes are excluded.
 
 A SiYuan plugin that displays compact outline lines at the upper-right corner of a hovered list. Hover over the lines to expand the labels and depth settings; move away to collapse them.
 
 - Supports ordered, unordered, task, and nested lists.
+- List entries display bullets, original ordered numbers, or task state markers (to do, done, in progress, canceled, and custom states). Enable "Hide completed tasks" (off by default) to hide completed items across the dock and floating outlines; remaining descendants stay visible at the nearest visible parent level.
 - Outlines remain visible while lists stay in the viewport, and hide automatically when scrolled out of view.
 - Search and filter list items in real time with keyword highlighting; press Escape to clear search, and search resets automatically when collapsed.
 - Option to hide the list outline if the list has no child blocks (nested sub-lists, blockquotes, code blocks, extra paragraphs, etc.) (`listOutlineRequireChildren`).
@@ -21,7 +22,7 @@ A SiYuan plugin that displays compact outline lines at the upper-right corner of
 - The outermost list and its nested lists share one outline. Only list items add levels; additional paragraphs and block metadata do not.
 - Requires a mouse or another pointer with hover support; no dedicated touch-only entry point is provided.
 
-Global settings are saved in `settings.json`. Per-list depth is saved as the list block attribute `custom-list-outline-depth`. Restoring the default clears this attribute without rewriting list content.
+Global settings are saved in `settings.json`. Document overrides use root block attributes `custom-outline-list-depth` (0–20) and `custom-outline-hide-completed-tasks` (`true`/`false`); missing or invalid values inherit global defaults. Per-list depth still uses `custom-list-outline-depth`. Restoring defaults clears only the corresponding overrides without rewriting content or unrelated attributes.
 
 ## Development
 
@@ -41,8 +42,8 @@ DOM tests do not replace interaction checks inside the SiYuan client.
 Based on [plugin-sample-vite-svelte](https://github.com/siyuan-note/plugin-sample-vite-svelte/).
 
 
-## ❤️ Tips Are Welcome
+## ❤️ Buy me a coffee
 
-If you find this plugin useful, you're welcome to leave a tip or give the repository a star on GitHub. Your support helps me maintain and improve this plugin and develop new ones. Thank you for your support!
+If you find this plugin useful, you're welcome to buy me a coffee. Your support helps me maintain and improve this plugin and develop new ones.
 
-[Leave a tip](https://pancake.waffo.ai/store/achuan-2-fdbho4ye/product/PROD_3F7Aa7c2NQlz9KmxcgxjQ7?type=onetime&currency=USD)
+[Buy me a coffee](https://pancake.waffo.ai/store/achuan-2-fdbho4ye/product/PROD_3F7Aa7c2NQlz9KmxcgxjQ7?type=onetime&currency=USD)

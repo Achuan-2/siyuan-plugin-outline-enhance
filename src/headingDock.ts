@@ -1,10 +1,12 @@
 import { expandCollapsedAncestors, filterCollapsedEntries, filterHeadingListEntries, findClosestHeadingOutlineTargetId, findEmbeddedOutlineTarget,
     flattenHeadingTree, getCollapsibleEntryIds, getEffectiveCollapsedIds, getHeadingOutlineTargetSelector, includeListsInHeadingTree,
     type HeadingEntry, type HeadingFoldState } from "./headingTree";
-import { getDefaultSettings, MAX_DEPTH, type OutlineSettings } from "./defaultSettings";
+import { getDefaultSettings, type OutlineSettings } from "./defaultSettings";
+import { OutlineQuickSettings } from "./outlineQuickSettings";
 import type { HeadingEditor } from "./headingOutline";
 import type { OpenInsertMenu } from "./outlineInsert";
-import { createOutlineFoldButton, createOutlineLabel } from "./outlineView";
+import { createOutlineFoldButton, createOutlineLabel, createOutlineListMarker, getOutlineTaskStatus } from "./outlineView";
+import { filterCompletedTasks } from "./outline";
 import { applyListUpdateOperations, canDragListItem, createHeadingMovePlan, createListItemMovePlan,
     type HeadingDropPosition, type OutlineMoveOperation } from "./headingDrag";
 
@@ -22,8 +24,12 @@ export interface HeadingDockOptions {
     reportError(message: string): void;
     openInsertMenu?: OpenInsertMenu;
     openHeadingLevelMenu?: OpenHeadingLevelMenu;
-    getSettings?(): OutlineSettings;
-    setListDepth?(depth: number): Promise<unknown>;
+    getSettings?(documentId?: string): OutlineSettings;
+    loadDocumentSettings?(documentId: string): Promise<void>;
+    hasDocumentOverrides?(documentId?: string): boolean;
+    resetDocumentSettings?(documentId: string): Promise<unknown>;
+    setListDepth?(depth: number, documentId: string): Promise<unknown>;
+    setHideCompletedTasks?(enabled: boolean, documentId: string): Promise<unknown>;
     setKeepCurrentHeadingExpanded?(enabled: boolean): Promise<unknown>;
     getFoldState?(documentId: string): HeadingFoldState | undefined;
     saveFoldState?(documentId: string, state: HeadingFoldState): Promise<unknown>;
@@ -72,7 +78,7 @@ export class HeadingOutlineDockView {
     private documentTitleText = document.createElement("span");
     private body = document.createElement("div");
     private status = document.createElement("div");
-    private listDepthSelect = document.createElement("select");
+    private quickSettings: OutlineQuickSettings;
     private searchInput = document.createElement("input");
     private editor: HeadingEditor | null = null;
     private entries: HeadingEntry[] = [];
@@ -110,34 +116,35 @@ export class HeadingOutlineDockView {
         const space = document.createElement("span");
         space.className = "fn__flex-1";
 
-        this.listDepthSelect.className = "b3-select heading-outline-dock__list-depth";
-        this.listDepthSelect.setAttribute("aria-label", "大纲增强列表层级");
-        this.listDepthSelect.title = "选择大纲增强中显示的列表层级";
-        for (let depth = 0; depth <= MAX_DEPTH; depth++) {
-            const option = document.createElement("option");
-            option.value = String(depth);
-            option.textContent = depth === 0 ? "不显示列表" : `列表 ${depth} 层`;
-            this.listDepthSelect.add(option);
-        }
-        this.listDepthSelect.value = String(this.settings.headingListDepth);
-        this.listDepthSelect.addEventListener("change", async () => {
-            this.listDepthSelect.disabled = true;
-            try {
-                const depth = Number(this.listDepthSelect.value);
-                await this.options.setListDepth?.(depth);
-                if (!this.disposed) {
+        this.quickSettings = new OutlineQuickSettings({
+            getSettings: () => this.settings,
+            reportError: options.reportError,
+            hasDocumentOverrides: () => options.hasDocumentOverrides?.(this.editor?.rootID) ?? false,
+            resetDocumentSettings: options.resetDocumentSettings ? async () => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.resetDocumentSettings!(documentId);
+                if (!this.disposed) this.refreshSettings();
+            } : undefined,
+            setListDepth: options.setListDepth ? async depth => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.setListDepth!(depth, documentId);
+                if (!this.disposed && this.editor?.rootID === documentId) {
                     this.showListEntries = depth > 0;
                     this.expandedTabIds.clear();
                     this.saveFoldState();
                     await this.refresh();
                 }
-            } catch (error) {
-                if (!this.disposed) this.options.reportError("列表层级设置保存失败，请重试。");
-            } finally {
-                this.listDepthSelect.disabled = false;
-                this.listDepthSelect.value = String(this.settings.headingListDepth);
-            }
+            } : undefined,
+            setHideCompletedTasks: options.setHideCompletedTasks ? async enabled => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.setHideCompletedTasks!(enabled, documentId);
+                if (!this.disposed) await this.refresh();
+            } : undefined,
         });
+        this.quickSettings.button.disabled = true;
 
         this.keepCurrentExpandButton = createToolbarButton("保存当前层级展开", "iconFocus", "keep-current-expand", async () => {
             const enabled = !this.settings.keepCurrentHeadingExpanded;
@@ -230,7 +237,7 @@ export class HeadingOutlineDockView {
             }
         });
         searchContainer.append(searchIcon, this.searchInput);
-        if (options.setListDepth) searchContainer.append(this.listDepthSelect);
+        if (options.setListDepth || options.setHideCompletedTasks) searchContainer.append(this.quickSettings.button);
 
         // 列表主体与状态栏
         this.body.className = "heading-outline-dock__body b3-list b3-list--background fn__flex-1";
@@ -255,7 +262,7 @@ export class HeadingOutlineDockView {
     }
 
     private get settings(): OutlineSettings {
-        return this.options.getSettings?.() || getDefaultSettings();
+        return this.options.getSettings?.(this.editor?.rootID) || getDefaultSettings();
     }
 
     private visible(editor: HeadingEditor) {
@@ -294,7 +301,10 @@ export class HeadingOutlineDockView {
         this.version++;
         clearTimeout(this.timer);
         this.observer.disconnect();
+        this.quickSettings.close();
         this.editor = editor;
+        this.quickSettings.button.disabled = !editor || !!this.options.loadDocumentSettings;
+        this.quickSettings.sync();
         this.renderDocumentTitle();
         this.entries = [];
         this.currentEntryId = "";
@@ -312,7 +322,7 @@ export class HeadingOutlineDockView {
         }
         this.observer.observe(editor.content, {
             childList: true, subtree: true, characterData: true,
-            attributes: true, attributeFilter: ["data-type", "data-subtype", "data-content", "style", "custom-list-outline-depth", "src", "data-src", "alt", "title",
+            attributes: true, attributeFilter: ["data-type", "data-subtype", "data-task", "data-marker", "data-content", "style", "custom-list-outline-depth", "src", "data-src", "alt", "title",
                 "tabs-title", "tabs-active-id", "data-tabs-hidden"],
         });
         void this.refresh();
@@ -338,8 +348,12 @@ export class HeadingOutlineDockView {
         clearTimeout(this.timer);
         const editor = this.editor;
         const version = ++this.version;
-        const settings = this.settings;
         try {
+            await this.options.loadDocumentSettings?.(editor.rootID);
+            if (this.disposed || version !== this.version) return;
+            const settings = this.settings;
+            this.quickSettings.sync();
+            this.quickSettings.button.disabled = false;
             const [nodes, snapshot] = await Promise.all([
                 this.options.request("/api/outline/getDocOutline", {
                     id: editor.rootID, preview: editor.preview, ...(editor.notebook ? { notebook: editor.notebook } : {}),
@@ -354,6 +368,7 @@ export class HeadingOutlineDockView {
                 this.entries = includeListsInHeadingTree(this.entries, snapshot?.dom || "", settings.headingListDepth,
                     editor.content, editor.preview ? editor.rootID : undefined);
             }
+            this.entries = filterCompletedTasks(this.entries, settings.hideCompletedTasks);
             this.status.textContent = "";
             this.render();
             this.body.removeAttribute("data-loading");
@@ -369,13 +384,13 @@ export class HeadingOutlineDockView {
     refreshSettings() {
         this.syncKeepCurrentExpandButton();
         const depth = this.settings.headingListDepth;
-        if (Number(this.listDepthSelect.value) !== depth) {
+        if (Number(this.quickSettings.depthSelect.value) !== depth) {
             this.showListEntries = depth > 0;
             this.expandedListEntryIds.clear();
             this.expandedTabIds.clear();
             this.saveFoldState();
         }
-        this.listDepthSelect.value = String(depth);
+        this.quickSettings.sync();
         if (this.settings.headingListDepth === 0) {
             this.entries = this.entries.filter(entry => !["paragraph", "list", "tab"].includes(entry.kind || ""));
             this.render();
@@ -543,11 +558,12 @@ export class HeadingOutlineDockView {
             const text = createOutlineLabel(entry, this.searchQuery,
                 "b3-list-item__text heading-outline-dock__text");
 
-            item.append(icon, text);
+            item.append(createOutlineListMarker(entry) || icon, text);
             if (!entry.images?.length || entry.images.some(image => image.title)) {
                 item.title = movable ? `${entry.text}\n拖动可调整${sourceKind === "list" ? "列表项" : "标题"}顺序和层级` : entry.text;
             }
-            item.setAttribute("aria-label", `第 ${entry.depth} 层：${entry.text}`);
+            const taskStatus = getOutlineTaskStatus(entry);
+            item.setAttribute("aria-label", `第 ${entry.depth} 层：${taskStatus ? `${taskStatus}，` : ""}${entry.text}`);
             if (!query && collapsibleIds.has(entry.id)) {
                 const expanded = !effectiveCollapsedIds.has(entry.id) && visibleCollapsibleIds.has(entry.id);
                 container.append(createOutlineFoldButton(entry, expanded,
@@ -869,6 +885,7 @@ export class HeadingOutlineDockView {
 
     destroy() {
         this.disposed = true;
+        this.quickSettings.destroy();
         this.version++;
         clearTimeout(this.timer);
         clearInterval(this.heartbeat);

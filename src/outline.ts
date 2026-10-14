@@ -17,6 +17,42 @@ export interface OutlineEntry {
     depth: number;
     images?: OutlineImage[];
     kind?: "heading" | "paragraph" | "list" | "tab";
+    listType?: "unordered" | "ordered" | "task";
+    /** 有序列表保留正文编号，过滤后不重新编号。 */
+    listMarker?: string;
+    /** 思源任务标记：空格、X/x、/、- 或自定义字符。 */
+    taskMarker?: string;
+}
+
+function extractListMetadata(item: Element, list: Element, index: number): Partial<OutlineEntry> {
+    const subtype = item.getAttribute("data-subtype") || list.getAttribute("data-subtype");
+    if (subtype === "t") {
+        return { listType: "task", taskMarker: item.getAttribute("data-task") ??
+            item.querySelector(':scope > .protyle-action--task')?.getAttribute("data-task") ?? " " };
+    }
+    if (subtype === "o") {
+        return { listType: "ordered", listMarker: item.getAttribute("data-marker") ||
+            normalizedText(item.querySelector(':scope > .protyle-action')) || `${index}.` };
+    }
+    return subtype === "u" ? { listType: "unordered" } : {};
+}
+
+/** 仅移除完成项；其后代提升到最近的可见父项，避免未完成子任务被一起隐藏。 */
+export function filterCompletedTasks<T extends OutlineEntry>(entries: T[], hideCompleted: boolean): T[] {
+    if (!hideCompleted) return entries;
+    const visible: T[] = [];
+    const ancestors: Array<{ depth: number; hidden: boolean }> = [];
+    let hiddenAncestors = 0;
+    for (const entry of entries) {
+        while (ancestors.length && ancestors[ancestors.length - 1].depth >= entry.depth) {
+            if (ancestors.pop()!.hidden) hiddenAncestors--;
+        }
+        const hidden = entry.listType === "task" && entry.taskMarker?.toUpperCase() === "X";
+        if (!hidden) visible.push(hiddenAncestors ? { ...entry, depth: entry.depth - hiddenAncestors } : entry);
+        ancestors.push({ depth: entry.depth, hidden });
+        if (hidden) hiddenAncestors++;
+    }
+    return visible;
 }
 
 export interface OutlineImage {
@@ -71,8 +107,10 @@ export function extractOutline(root: HTMLElement, maxDepth: number): OutlineEntr
         if (depth > maxDepth || list.closest(QUOTE_SELECTOR)) return;
         const isTabs = list.matches(TABS_SELECTOR);
         const directItemSelector = isTabs ? '[data-type="NodeTabItem"]' : '[data-type="NodeListItem"]';
+        let itemIndex = 0;
         for (const item of Array.from(list.children)) {
             if (!item.matches(directItemSelector)) continue;
+            itemIndex++;
             // 列表项取自己的首个文本块；页签项只取原始标题，不能把页签正文拼进大纲。
             const content = isTabs
                 ? item.querySelector<HTMLElement>(":scope > .tab-item-info > .tab-item-title, " +
@@ -100,7 +138,7 @@ export function extractOutline(root: HTMLElement, maxDepth: number): OutlineEntr
             const id = item.getAttribute("data-node-id");
             if (id) entries.push({ id, text: text || (isTabs ? "（空页签）" : "（空列表项）"), depth,
                 ...(images.length ? { images } : inline.html ? { inlineHTML: inline.html } : {}),
-                ...(isTabs ? { kind: "tab" as const } : {}) });
+                ...(isTabs ? { kind: "tab" as const } : extractListMetadata(item, list, itemIndex)) });
             // 只有嵌套列表或页签增加层级；引述块中的容器整体跳过。
             for (const child of Array.from(item.querySelectorAll(OUTLINE_CONTAINER_SELECTOR))) {
                 if (child.parentElement?.closest(OUTLINE_ITEM_SELECTOR) === item &&

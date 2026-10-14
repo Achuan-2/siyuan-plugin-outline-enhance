@@ -8,6 +8,7 @@ import { HeadingOutlineDockView, type OpenHeadingLevelMenu } from "./headingDock
 import { HeadingGutterController } from "./headingGutter";
 import type { HeadingFoldState } from "./headingTree";
 import { HEADING_OUTLINE_ICON, HEADING_OUTLINE_ICON_ID } from "./icons";
+import { DocumentOutlineSettings, type DocumentOutlineOverrides } from "./documentOutlineSettings";
 import { insertOutlineSibling, insertIntoOutlineEditor, type OutlineInsertTarget, type OpenInsertMenu } from "./outlineInsert";
 
 const SETTINGS_FILE = "settings.json";
@@ -29,6 +30,34 @@ export default class ListOutlinePlugin extends Plugin {
     private headingLevelMenu?: Menu;
     private inserting = new Set<string>();
     private headingDockRegistered = false;
+    private documentSettings = new DocumentOutlineSettings(
+        (url, data) => this.request(url, data), () => this.settings,
+    );
+
+    private getDocumentSettings = (documentId?: string) => this.documentSettings.get(documentId);
+    private loadDocumentSettings = (documentId: string) => this.documentSettings.load(documentId);
+    private hasDocumentOverrides = (documentId?: string) => this.documentSettings.hasOverrides(documentId);
+
+    private refreshOutlineSettings() {
+        if (this.disposed) return;
+        this.outline?.refreshSettings();
+        this.headingOutline?.refreshSettings();
+        this.headingDock?.refreshSettings();
+    }
+
+    private async saveDocumentSettings(documentId: string, patch: DocumentOutlineOverrides) {
+        await this.documentSettings.save(documentId, patch);
+        this.refreshOutlineSettings();
+    }
+
+    private resetDocumentSettings = async (documentId: string) => {
+        await this.documentSettings.reset(documentId);
+        this.refreshOutlineSettings();
+    };
+
+    private getListDocumentId = (editor?: HTMLElement) => editor ? this.getHeadingEditors().find(
+        candidate => candidate.element.contains(editor),
+    )?.rootID : undefined;
 
     private registerHeadingDock() {
         if (this.headingDockRegistered) return;
@@ -46,8 +75,12 @@ export default class ListOutlinePlugin extends Plugin {
             init: dock => {
                 this.headingDock = new HeadingOutlineDockView(dock.element as HTMLElement, {
                     getEditors: this.getHeadingEditors,
-                    getSettings: () => this.settings,
-                    setListDepth: depth => this.saveSettings({ ...this.settings, headingListDepth: depth }),
+                    getSettings: this.getDocumentSettings,
+                    loadDocumentSettings: this.loadDocumentSettings,
+                    hasDocumentOverrides: this.hasDocumentOverrides,
+                    resetDocumentSettings: this.resetDocumentSettings,
+                    setListDepth: (depth, documentId) => this.saveDocumentSettings(documentId, { headingListDepth: depth }),
+                    setHideCompletedTasks: (enabled, documentId) => this.saveDocumentSettings(documentId, { hideCompletedTasks: enabled }),
                     setKeepCurrentHeadingExpanded: enabled => this.saveSettings({
                         ...this.settings, keepCurrentHeadingExpanded: enabled,
                     }),
@@ -197,7 +230,11 @@ export default class ListOutlinePlugin extends Plugin {
         else this.unregisterHeadingDock();
         if (this.settings.enableListOutline && !this.outline) this.outline = new ListOutlineController({
             renderMath: element => ProtyleMethod.mathRender(element),
-            getSettings: () => this.settings,
+            getSettings: editor => this.documentSettings.get(this.getListDocumentId(editor)),
+            loadDocumentSettings: async editor => {
+                const documentId = this.getListDocumentId(editor);
+                if (documentId) await this.documentSettings.load(documentId);
+            },
             request: this.request,
             openInsertMenu: this.openInsertMenu,
             navigate: id => {
@@ -218,8 +255,12 @@ export default class ListOutlinePlugin extends Plugin {
             isMobile: () => getFrontend().includes("mobile"),
             newNodeID: () => window.Lute.NewNodeID(),
             renderMath: element => ProtyleMethod.mathRender(element),
-            getSettings: () => this.settings,
-            setListDepth: depth => this.saveSettings({ ...this.settings, headingListDepth: depth }),
+            getSettings: this.getDocumentSettings,
+            loadDocumentSettings: this.loadDocumentSettings,
+            hasDocumentOverrides: this.hasDocumentOverrides,
+            resetDocumentSettings: this.resetDocumentSettings,
+            setListDepth: (depth, documentId) => this.saveDocumentSettings(documentId, { headingListDepth: depth }),
+            setHideCompletedTasks: (enabled, documentId) => this.saveDocumentSettings(documentId, { hideCompletedTasks: enabled }),
             getFoldState: documentId => this.headingFoldStates[documentId],
             saveFoldState: this.saveHeadingFoldState,
             openInsertMenu: this.openInsertMenu,

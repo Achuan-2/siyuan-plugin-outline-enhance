@@ -1,11 +1,12 @@
 import { MAX_DEPTH, type OutlineSettings } from "./defaultSettings";
-import { blockDepth, DEPTH_ATTRIBUTE, extractOutline, findList, findRootLists, hasChildBlocks,
+import { blockDepth, DEPTH_ATTRIBUTE, extractOutline, filterCompletedTasks, findList, findRootLists, hasChildBlocks,
     OUTLINE_CONTAINER_SELECTOR, OUTLINE_ITEM_SELECTOR, TABS_SELECTOR } from "./outline";
 import { createOutlineRow, setOutlineCurrent } from "./outlineView";
 import type { OpenInsertMenu } from "./outlineInsert";
 
 interface Options {
-    getSettings(): OutlineSettings;
+    getSettings(editor?: HTMLElement): OutlineSettings;
+    loadDocumentSettings?(editor: HTMLElement): Promise<void>;
     request(url: string, data: Record<string, unknown>): Promise<any>;
     navigate(id: string): void;
     reportError(message: string): void;
@@ -109,7 +110,7 @@ export class ListOutlineView {
         this.observer = new MutationObserver(this.onMutation);
         this.observer.observe(this.active, {
             childList: true, subtree: true, characterData: true, attributes: true,
-            attributeFilter: [DEPTH_ATTRIBUTE, "fold", "data-type", "data-content", "style", "src", "data-src", "alt", "title",
+            attributeFilter: [DEPTH_ATTRIBUTE, "fold", "data-type", "data-subtype", "data-task", "data-marker", "data-content", "style", "src", "data-src", "alt", "title",
                 "tabs-title", "tabs-active-id", "data-tabs-hidden"],
         });
         this.resizeObserver = new ResizeObserver(this.schedulePosition);
@@ -234,7 +235,7 @@ export class ListOutlineView {
             this.panel.hidden = true;
             return false;
         }
-        const settings = this.options.getSettings();
+        const settings = this.options.getSettings(this.editor);
         if (settings.listOutlineRequireChildren && !this.hasChildren && !this.expanded) {
             this.panel.hidden = true;
             return false;
@@ -294,11 +295,11 @@ export class ListOutlineView {
     private render() {
         if (!this.active || !this.source) return;
         this.updateContainerLabels();
-        const settings = this.options.getSettings();
+        const settings = this.options.getSettings(this.editor);
         this.select.options[0].textContent = `默认（${settings.defaultDepth} 层）`;
         this.select.value = this.override === null ? "" : String(this.override);
         this.select.disabled = this.saving.has(this.active.dataset.nodeId!);
-        const allEntries = extractOutline(this.source, this.override ?? settings.defaultDepth);
+        const allEntries = filterCompletedTasks(extractOutline(this.source, this.override ?? settings.defaultDepth), settings.hideCompletedTasks);
         this.hasChildren = hasChildBlocks(this.source) || allEntries.some(entry => entry.depth > 1);
         if (settings.listOutlineRequireChildren && !this.hasChildren && !this.expanded) {
             this.panel.hidden = true;
@@ -357,9 +358,10 @@ export class ListOutlineView {
         const generation = this.generation;
         const version = ++this.requestVersion;
         const id = active.dataset.nodeId!;
-        const [dom, attrs] = await Promise.allSettled([
+        const [dom, attrs, documentSettings] = await Promise.allSettled([
             this.options.request("/api/block/getBlockDOM", { id }),
             this.options.request("/api/attr/getBlockAttrs", { id }),
+            this.options.loadDocumentSettings?.(this.editor),
         ]);
         if (this.disposed || generation !== this.generation || version !== this.requestVersion) return;
         if (dom.status === "fulfilled" && dom.value?.dom) {
@@ -375,6 +377,7 @@ export class ListOutlineView {
         }
         this.status.textContent = dom.status === "rejected" ? "读取完整列表失败，暂显示已加载内容" : "";
         if (attrs.status === "rejected") this.status.textContent = "读取块设置失败，暂使用当前显示值";
+        if (documentSettings.status === "rejected") this.status.textContent = "读取文档大纲设置失败，暂使用全局默认值";
         this.render();
     }
 

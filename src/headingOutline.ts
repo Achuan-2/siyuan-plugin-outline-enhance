@@ -1,8 +1,10 @@
 import { expandCollapsedAncestors, filterCollapsedEntries, filterHeadingListEntries, findClosestHeadingOutlineTargetId, findEmbeddedOutlineTarget,
     flattenHeadingTree, getCollapsibleEntryIds, getEffectiveCollapsedIds, getHeadingOutlineTargetSelector, includeListsInHeadingTree,
     type HeadingEntry, type HeadingFoldState } from "./headingTree";
-import { getDefaultSettings, MAX_DEPTH, type OutlineSettings } from "./defaultSettings";
+import { getDefaultSettings, type OutlineSettings } from "./defaultSettings";
+import { OutlineQuickSettings } from "./outlineQuickSettings";
 import { createOutlineFoldButton, createOutlineRow, setOutlineCurrent } from "./outlineView";
+import { filterCompletedTasks } from "./outline";
 import type { OpenInsertMenu } from "./outlineInsert";
 import type { OpenHeadingLevelMenu } from "./headingDock";
 import { HEADING_OUTLINE_ICON_ID } from "./icons";
@@ -27,8 +29,12 @@ interface Options {
     reportError(message: string): void;
     openInsertMenu?: OpenInsertMenu;
     openHeadingLevelMenu?: OpenHeadingLevelMenu;
-    getSettings?(): OutlineSettings;
-    setListDepth?(depth: number): Promise<unknown>;
+    getSettings?(documentId?: string): OutlineSettings;
+    loadDocumentSettings?(documentId: string): Promise<void>;
+    hasDocumentOverrides?(documentId?: string): boolean;
+    resetDocumentSettings?(documentId: string): Promise<unknown>;
+    setListDepth?(depth: number, documentId: string): Promise<unknown>;
+    setHideCompletedTasks?(enabled: boolean, documentId: string): Promise<unknown>;
     getFoldState?(documentId: string): HeadingFoldState | undefined;
     saveFoldState?(documentId: string, state: HeadingFoldState): Promise<unknown>;
     isMobile?(): boolean;
@@ -57,7 +63,7 @@ export class HeadingOutlineController {
     private panel = document.createElement("aside");
     private body = document.createElement("div");
     private status = document.createElement("div");
-    private listDepthSelect = document.createElement("select");
+    private quickSettings: OutlineQuickSettings;
     private editor: HeadingEditor | null = null;
     private entries: HeadingEntry[] = [];
     private collapsedEntryIds = new Set<string>();
@@ -154,36 +160,43 @@ export class HeadingOutlineController {
             event.stopPropagation();
             this.setExpanded(false);
         });
-        this.listDepthSelect.className = "b3-select";
-        this.listDepthSelect.setAttribute("aria-label", "大纲增强列表层级");
-        this.listDepthSelect.title = "选择大纲增强中显示的列表层级";
-        for (let depth = 0; depth <= MAX_DEPTH; depth++) {
-            const option = document.createElement("option");
-            option.value = String(depth);
-            option.textContent = depth === 0 ? "不显示列表" : `列表 ${depth} 层`;
-            this.listDepthSelect.add(option);
-        }
-        this.listDepthSelect.value = String(this.settings.headingListDepth);
-        this.listDepthSelect.addEventListener("change", async () => {
-            this.listDepthSelect.disabled = true;
-            try {
-                const depth = Number(this.listDepthSelect.value);
-                await this.options.setListDepth?.(depth);
-                if (!this.disposed) {
+        this.quickSettings = new OutlineQuickSettings({
+            getSettings: () => this.settings,
+            reportError: options.reportError,
+            hasDocumentOverrides: () => options.hasDocumentOverrides?.(this.editor?.rootID) ?? false,
+            resetDocumentSettings: options.resetDocumentSettings ? async () => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.resetDocumentSettings!(documentId);
+                if (!this.disposed) this.refreshSettings();
+            } : undefined,
+            setListDepth: options.setListDepth ? async depth => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.setListDepth!(depth, documentId);
+                if (!this.disposed && this.editor?.rootID === documentId) {
                     this.showListEntries = depth > 0;
                     this.expandedTabIds.clear();
                     this.saveFoldState();
                     await this.refresh();
                 }
-            } catch (error) {
-                if (!this.disposed) this.options.reportError("列表层级设置保存失败，请重试。");
-            } finally {
-                this.listDepthSelect.disabled = false;
-                this.listDepthSelect.value = String(this.settings.headingListDepth);
-            }
+            } : undefined,
+            setHideCompletedTasks: options.setHideCompletedTasks ? async enabled => {
+                const documentId = this.editor?.rootID;
+                if (!documentId) return;
+                await options.setHideCompletedTasks!(enabled, documentId);
+                if (!this.disposed) await this.refresh();
+            } : undefined,
+            onOpenChange: open => {
+                this.menuOpen = open;
+                if (open) this.setExpanded(true);
+                else if (!this.disposed && !this.panel.matches(":hover") &&
+                    !(document.activeElement && this.panel.contains(document.activeElement))) this.setExpanded(false);
+            },
         });
+        this.quickSettings.button.disabled = true;
         header.append(title);
-        if (options.setListDepth) header.append(this.listDepthSelect);
+        if (options.setListDepth || options.setHideCompletedTasks) header.append(this.quickSettings.button);
         header.append(locate, expandLevel, refresh, close);
         this.body.className = "list-outline-floating__body";
         this.status.className = "list-outline-floating__status";
@@ -248,6 +261,8 @@ export class HeadingOutlineController {
         clearTimeout(this.timer);
         this.observer.disconnect();
         this.editor = editor;
+        this.quickSettings.button.disabled = !editor || !!this.options.loadDocumentSettings;
+        this.quickSettings.sync();
         this.entries = [];
         const foldState = editor ? this.options.getFoldState?.(editor.rootID) : undefined;
         this.collapsedEntryIds = new Set(foldState?.collapsedIds || []);
@@ -261,7 +276,7 @@ export class HeadingOutlineController {
         this.panel.hidden = true;
         if (!editor) return;
         this.observer.observe(editor.content, { childList: true, subtree: true, characterData: true,
-            attributes: true, attributeFilter: ["data-type", "data-subtype", "data-content", "style", "custom-list-outline-depth", "src", "data-src", "alt", "title",
+            attributes: true, attributeFilter: ["data-type", "data-subtype", "data-task", "data-marker", "data-content", "style", "custom-list-outline-depth", "src", "data-src", "alt", "title",
                 "tabs-title", "tabs-active-id", "data-tabs-hidden"] });
         void this.refresh();
     }
@@ -275,7 +290,8 @@ export class HeadingOutlineController {
     };
 
     private onDocumentClick = (event: MouseEvent) => {
-        if (!this.mobile || !this.expanded || !(event.target instanceof Node) || this.panel.contains(event.target)) return;
+        if (!this.mobile || !this.expanded || !(event.target instanceof Node) || this.panel.contains(event.target) ||
+            this.quickSettings.contains(event.target)) return;
         this.setExpanded(false);
     };
 
@@ -298,8 +314,12 @@ export class HeadingOutlineController {
         clearTimeout(this.timer);
         const editor = this.editor;
         const version = ++this.version;
-        const settings = this.settings;
         try {
+            await this.options.loadDocumentSettings?.(editor.rootID);
+            if (this.disposed || version !== this.version) return;
+            const settings = this.settings;
+            this.quickSettings.sync();
+            this.quickSettings.button.disabled = false;
             const [nodes, snapshot] = await Promise.all([this.options.request("/api/outline/getDocOutline", {
                 id: editor.rootID, preview: editor.preview, ...(editor.notebook ? { notebook: editor.notebook } : {}),
             }), settings.headingListDepth > 0 ? this.options.request("/api/block/getBlockDOM", {
@@ -311,6 +331,7 @@ export class HeadingOutlineController {
                 this.entries = includeListsInHeadingTree(this.entries, snapshot?.dom || "", settings.headingListDepth,
                     editor.content, editor.preview ? editor.rootID : undefined);
             }
+            this.entries = filterCompletedTasks(this.entries, settings.hideCompletedTasks);
             this.status.textContent = "";
             this.render();
             this.body.removeAttribute("data-loading");
@@ -323,7 +344,7 @@ export class HeadingOutlineController {
         }
     }
 
-    private get settings() { return this.options.getSettings?.() || getDefaultSettings(); }
+    private get settings() { return this.options.getSettings?.(this.editor?.rootID) || getDefaultSettings(); }
 
     /** 沿用 Dock：H1-H5 折叠该级及更深标题，H6 展开全部标题和页签。 */
     private expandToHeadingLevel(targetLevel: number) {
@@ -388,13 +409,13 @@ export class HeadingOutlineController {
     refreshSettings() {
         this.syncDisplayMode();
         const depth = this.settings.headingListDepth;
-        if (Number(this.listDepthSelect.value) !== depth) {
+        if (Number(this.quickSettings.depthSelect.value) !== depth) {
             this.showListEntries = depth > 0;
             this.expandedListEntryIds.clear();
             this.expandedTabIds.clear();
             this.saveFoldState();
         }
-        this.listDepthSelect.value = String(depth);
+        this.quickSettings.sync();
         if (this.settings.headingListDepth === 0) {
             this.entries = this.entries.filter(entry => !["paragraph", "list", "tab"].includes(entry.kind || ""));
             this.render();
@@ -722,7 +743,10 @@ export class HeadingOutlineController {
             toggle.title = expanded ? "关闭大纲增强" : "打开大纲增强";
             toggle.hidden = (this.mobile || this.iconMode) && expanded;
         }
-        if (!expanded) this.body.scrollTop = 0;
+        if (!expanded) {
+            this.quickSettings?.close();
+            this.body.scrollTop = 0;
+        }
         this.position();
         if (expanded && !wasExpanded) {
             const current = this.resolveCurrentLocation();
@@ -889,6 +913,7 @@ export class HeadingOutlineController {
 
     destroy() {
         this.disposed = true;
+        this.quickSettings.destroy();
         this.menuOpen = false;
         this.version++;
         clearTimeout(this.timer);

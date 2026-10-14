@@ -676,7 +676,7 @@ test("大纲增强 Dock：点击空列表项时直接高亮空列表项", async 
 
         const current = env.container.querySelector<HTMLButtonElement>("button.b3-list-item--focus");
         assert.equal(current?.dataset.id, "empty");
-        assert.equal(current?.textContent, "（空列表项）");
+        assert.equal(current?.querySelector(".heading-outline-dock__text")?.textContent, "（空列表项）");
     } finally { env.cleanup(); }
 });
 
@@ -721,7 +721,7 @@ test("大纲增强 Dock：同步高亮不强制滚动列表到当前标题", asy
     } finally { env.cleanup(); }
 });
 
-test("大纲增强 Dock：列表下拉框选择不显示或具体显示层级", async () => {
+test("大纲增强 Dock：快捷设置选择不显示列表或具体显示层级", async () => {
     const snapshot = '<div data-type="NodeHeading" data-node-id="h1"></div>' +
         '<div data-type="NodeList" data-node-id="list"><div data-type="NodeListItem" data-node-id="l1">' +
         '<div data-type="NodeParagraph"><div contenteditable="true">一级列表</div></div>' +
@@ -733,7 +733,8 @@ test("大纲增强 Dock：列表下拉框选择不显示或具体显示层级", 
     const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } : tree);
     try {
         await settle();
-        const select = env.container.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
+        env.container.querySelector<HTMLButtonElement>('[data-action="outline-settings"]')!.click();
+        const select = env.win.document.querySelector<HTMLSelectElement>('select[aria-label="大纲增强列表层级"]')!;
         assert.equal(select.value, "0");
         assert.equal(env.calls.some(call => call.url.endsWith("getBlockDOM")), false);
 

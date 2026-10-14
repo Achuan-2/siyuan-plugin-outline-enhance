@@ -5,6 +5,7 @@ export interface OutlineSettings {
     enableHeadingGutters: boolean;
     headingOutlineDisplayMode: "compact" | "icon";
     headingListDepth: number;
+    hideCompletedTasks: boolean;
     keepCurrentHeadingExpanded: boolean;
     listOutlineRequireChildren: boolean;
     defaultDepth: number;
@@ -18,6 +19,7 @@ export const getDefaultSettings = (): OutlineSettings => ({
     enableHeadingGutters: false,
     headingOutlineDisplayMode: "icon",
     headingListDepth: 2,
+    hideCompletedTasks: false,
     keepCurrentHeadingExpanded: false,
     listOutlineRequireChildren: false,
     defaultDepth: 3,
@@ -40,6 +42,7 @@ export function normalizeSettings(value: Partial<OutlineSettings> & { headingInc
         enableHeadingGutters: typeof value.enableHeadingGutters === "boolean" ? value.enableHeadingGutters : defaults.enableHeadingGutters,
         headingOutlineDisplayMode: value.headingOutlineDisplayMode === "icon" ? "icon" : defaults.headingOutlineDisplayMode,
         headingListDepth,
+        hideCompletedTasks: typeof value.hideCompletedTasks === "boolean" ? value.hideCompletedTasks : defaults.hideCompletedTasks,
         keepCurrentHeadingExpanded: typeof value.keepCurrentHeadingExpanded === "boolean"
             ? value.keepCurrentHeadingExpanded : defaults.keepCurrentHeadingExpanded,
         listOutlineRequireChildren: typeof value.listOutlineRequireChildren === "boolean" ? value.listOutlineRequireChildren : defaults.listOutlineRequireChildren,

@@ -1,6 +1,37 @@
 import type { OutlineEntry } from "./outline";
 import { highlightOutlineLabel } from "./outlineInline";
 
+export function getOutlineTaskStatus(entry: OutlineEntry): string {
+    if (entry.listType !== "task") return "";
+    const marker = entry.taskMarker || " ";
+    switch (marker.toUpperCase()) {
+        case " ": return "未完成";
+        case "X": return "已完成";
+        case "/": return "进行中";
+        case "-": return "已取消";
+        default: return `自定义状态 [${marker}]`;
+    }
+}
+
+/** 共用标识，使用字符绘制任务状态以兼容没有新增任务图标的思源版本。 */
+export function createOutlineListMarker(entry: OutlineEntry): HTMLSpanElement | null {
+    const type = entry.listType || (entry.kind === "list" ? "unordered" : undefined);
+    if (!type) return null;
+    const marker = document.createElement("span");
+    marker.className = `outline-entry__marker outline-entry__marker--${type}`;
+    marker.setAttribute("aria-hidden", "true");
+    if (type === "task") {
+        const state = (entry.taskMarker || " ").toUpperCase();
+        marker.textContent = state === "X" ? "☑" : state === " " ? "☐" :
+            state === "/" ? "◩" : state === "-" ? "⊠" : `[${entry.taskMarker}]`;
+        marker.title = getOutlineTaskStatus(entry);
+    } else {
+        marker.textContent = type === "ordered" ? entry.listMarker || "1." : "•";
+        marker.title = type === "ordered" ? "有序列表" : "无序列表";
+    }
+    return marker;
+}
+
 export function createOutlineLabel(entry: OutlineEntry, highlightKeyword?: string,
     className = "list-outline-floating__text"): HTMLSpanElement {
     const label = document.createElement("span");
@@ -74,9 +105,13 @@ export function createOutlineRow(entry: OutlineEntry, highlightKeyword?: string)
     line.className = "list-outline-floating__line";
     line.setAttribute("aria-hidden", "true");
     const text = createOutlineLabel(entry, highlightKeyword);
-    row.append(line, text);
+    const marker = createOutlineListMarker(entry);
+    row.append(line);
+    if (marker) row.append(marker);
+    row.append(text);
     if (!entry.images?.length || entry.images.some(image => image.title)) row.title = entry.text;
-    row.setAttribute("aria-label", `第 ${entry.depth} 层：${entry.text}`);
+    const taskStatus = getOutlineTaskStatus(entry);
+    row.setAttribute("aria-label", `第 ${entry.depth} 层：${taskStatus ? `${taskStatus}，` : ""}${entry.text}`);
     return row;
 }
 
