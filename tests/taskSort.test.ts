@@ -71,17 +71,19 @@ test("任务块和列表项菜单定位同级列表，多选去重且不误选�
     assert.deepEqual(getTaskListTargets(nodes), ["root", "nested"]);
 });
 
-function setup() {
-    const win = new JSDOM(list("root", item("done", "X") + item("todo"))).window;
+function setup(initialMarker = "X") {
+    const win = new JSDOM(list("root", item("done", initialMarker) + item("todo"))).window;
     Object.defineProperty(globalThis, "DOMParser", { value: win.DOMParser, configurable: true });
     let position: AutoTaskSort = "bottom";
     let writable = true;
+    const contents: HTMLElement[] = [win.document.body];
     const calls: { url: string; data: any }[] = [];
     const errors: string[] = [];
     const find = (id: string) => Array.from(win.document.querySelectorAll<HTMLElement>("[data-node-id]")).find(node => node.dataset.nodeId === id);
     let requestOverride: ((url: string, data: any) => Promise<any>) | undefined;
     const controller = new TaskSortController({
         getPosition: () => position, canWrite: () => writable,
+        getEditors: () => contents,
         transactionContext: () => ({ app: "app", session: "task-sort" }),
         reportError: error => errors.push(error),
         request: async (url, data) => {
@@ -98,7 +100,7 @@ function setup() {
     });
     const message = (data = item("done", "X"), action = "update") => ({ cmd: "transactions",
         data: [{ doOperations: [{ action, id: "done", data }] }] });
-    return { controller, calls, errors, win, message, find,
+    return { controller, calls, errors, win, message, find, contents,
         setPosition(value: AutoTaskSort) { position = value; controller.refreshSettings(); },
         setWritable(value: boolean) { writable = value; },
         setRequest(value: typeof requestOverride) { requestOverride = value; } };
@@ -213,5 +215,94 @@ test("一次请求失败不会阻塞后续手动排序队列", async () => {
         env.setRequest(undefined);
         await env.controller.sortLists(["root"], "bottom");
         assert.equal(env.calls.filter(call => call.url === "/api/transactions").length, 1);
+    } finally { env.controller.destroy(); env.win.close(); }
+});
+
+test("没有任何工作区广播，本地直接勾选和取消任务也会触发排序", async () => {
+    const env = setup(" ");
+    try {
+        env.find("done")!.dataset.task = "X";
+        await waitFor(() => env.calls.some(call => call.url === "/api/transactions"));
+        assert.equal(env.find("root")!.firstElementChild!.getAttribute("data-node-id"), "todo");
+        env.find("todo")!.dataset.task = "X";
+        env.find("done")!.dataset.task = " ";
+        await waitFor(() => env.calls.filter(call => call.url === "/api/transactions").length === 2);
+        assert.equal(env.find("root")!.firstElementChild!.getAttribute("data-node-id"), "done");
+    } finally { env.controller.destroy(); env.win.close(); }
+});
+
+test("直接替换任务 DOM 的状态变化也会触发排序，普通重绘与移动不循环", async () => {
+    const env = setup(" ");
+    try {
+        env.find("done")!.outerHTML = item("done", "X");
+        await waitFor(() => env.calls.some(call => call.url === "/api/transactions"));
+        const count = env.calls.length;
+        env.find("root")!.outerHTML = env.find("root")!.outerHTML;
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.equal(env.calls.length, count);
+    } finally { env.controller.destroy(); env.win.close(); }
+});
+
+test("设置从关闭切到开启后立即监听，关闭或销毁后停止监听本地任务", async () => {
+    const env = setup(" ");
+    try {
+        env.setPosition("off");
+        env.find("done")!.dataset.task = "X";
+        await new Promise(resolve => setTimeout(resolve, 360));
+        assert.equal(env.calls.length, 0);
+        env.find("done")!.dataset.task = " ";
+        env.setPosition("bottom");
+        env.find("done")!.dataset.task = "X";
+        await waitFor(() => env.calls.some(call => call.url === "/api/transactions"));
+        const count = env.calls.length;
+        env.setPosition("off");
+        env.find("done")!.dataset.task = " ";
+        env.find("todo")!.dataset.task = "X";
+        await new Promise(resolve => setTimeout(resolve, 360));
+        assert.equal(env.calls.length, count);
+        env.setPosition("bottom");
+        env.find("todo")!.dataset.task = " ";
+        await Promise.resolve();
+        env.controller.destroy();
+        await new Promise(resolve => setTimeout(resolve, 360));
+        assert.equal(env.calls.length, count);
+    } finally { env.controller.destroy(); env.win.close(); }
+});
+
+test("切换编辑器时更新监听，不依赖大纲控制器或工作区广播", async () => {
+    const env = setup(" ");
+    try {
+        const content = env.win.document.createElement("section");
+        content.innerHTML = list("second", item("second-done") + item("second-todo"));
+        env.win.document.body.append(content);
+        env.contents.splice(0, 1, content);
+        env.controller.syncEditors();
+        env.find("done")!.dataset.task = "X";
+        env.find("second-done")!.dataset.task = "X";
+        await waitFor(() => env.calls.some(call => call.url === "/api/transactions"));
+        assert.deepEqual(env.calls.filter(call => call.url.endsWith("getBlockDOM")).map(call => call.data.id), ["second"]);
+    } finally { env.controller.destroy(); env.win.close(); }
+});
+
+test("本地勾选先于原生保存时，等待后端任务状态一致再排序", async () => {
+    const env = setup(" ");
+    try {
+        const saved = env.find("root")!.outerHTML;
+        let reads = 0;
+        env.setRequest(async (url, data) => {
+            if (url.endsWith("getBlockDOM")) {
+                reads++;
+                return { dom: reads < 3 ? saved : env.find("root")!.outerHTML };
+            }
+            if (url === "/api/transactions") {
+                applyMoves(env.win.document, data.transactions[0].doOperations);
+                return [];
+            }
+            throw new Error(`意外请求 ${url}`);
+        });
+        env.find("done")!.dataset.task = "X";
+        await waitFor(() => env.calls.some(call => call.url === "/api/transactions"));
+        assert.equal(reads, 3);
+        assert.equal(env.find("root")!.firstElementChild!.getAttribute("data-node-id"), "todo");
     } finally { env.controller.destroy(); env.win.close(); }
 });

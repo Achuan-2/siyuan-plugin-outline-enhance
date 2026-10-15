@@ -168,6 +168,13 @@ export default class ListOutlinePlugin extends Plugin {
             canWrite: () => !this.disposed && !window.siyuan.config.editor.readOnly,
             transactionContext: () => ({ app: this.app.appId, session: this.name }),
             reportError: message => showMessage(message, 5000, "error"),
+            getEditors: () => getAllEditor().flatMap(editor => {
+                const protyle = editor?.protyle;
+                if (!protyle?.wysiwyg?.element || protyle.disabled ||
+                    protyle.options?.action?.includes("cb-get-history") ||
+                    (protyle.preview?.element && !protyle.preview.element.classList.contains("fn__none"))) return [];
+                return [protyle.wysiwyg.element];
+            }),
         });
         if (this.settings.enableHeadingDock) this.registerHeadingDock();
 
@@ -180,6 +187,7 @@ export default class ListOutlinePlugin extends Plugin {
     private protyleEvents = ["loaded-protyle-static", "loaded-protyle-dynamic", "switch-protyle", "switch-protyle-mode", "destroy-protyle"] as const;
 
     private onProtyle = (event: CustomEvent<{ protyle: IProtyle }>) => {
+        this.taskSort?.syncEditors();
         this.headingGutters?.syncEditors();
         this.headingOutline?.syncEditors(event.detail.protyle.element);
         this.headingDock?.syncEditors(event.detail.protyle.element);
@@ -226,6 +234,7 @@ export default class ListOutlinePlugin extends Plugin {
     };
 
     onLayoutReady() {
+        this.taskSort?.syncEditors();
         this.headingGutters?.syncEditors();
         this.headingOutline?.syncEditors();
         this.headingDock?.syncEditors();
@@ -346,8 +355,9 @@ export default class ListOutlinePlugin extends Plugin {
         const next = normalizeSettings(settings);
         const save = this.settingsQueue.then(async () => {
             await this.saveData(SETTINGS_FILE, next);
-            if (this.settings.autoTaskSort !== next.autoTaskSort) this.taskSort?.refreshSettings();
+            const taskSortChanged = this.settings.autoTaskSort !== next.autoTaskSort;
             this.settings = next;
+            if (taskSortChanged) this.taskSort?.refreshSettings();
             if (!this.disposed) this.syncFeatures();
         });
         this.settingsQueue = save.catch(() => {});
