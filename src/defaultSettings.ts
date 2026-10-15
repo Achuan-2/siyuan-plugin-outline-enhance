@@ -1,6 +1,3 @@
-export type CompletedTaskPosition = "top" | "bottom";
-export type AutoTaskSort = "off" | CompletedTaskPosition;
-
 export interface OutlineSettings {
     enableListOutline: boolean;
     enableHeadingOutline: boolean;
@@ -9,7 +6,6 @@ export interface OutlineSettings {
     headingOutlineDisplayMode: "compact" | "icon";
     headingListDepth: number;
     hideCompletedTasks: boolean;
-    autoTaskSort: AutoTaskSort;
     keepCurrentHeadingExpanded: boolean;
     listOutlineRequireChildren: boolean;
     defaultDepth: number;
@@ -24,7 +20,6 @@ export const getDefaultSettings = (): OutlineSettings => ({
     headingOutlineDisplayMode: "icon",
     headingListDepth: 2,
     hideCompletedTasks: false,
-    autoTaskSort: "off",
     keepCurrentHeadingExpanded: false,
     listOutlineRequireChildren: false,
     defaultDepth: 3,
@@ -48,7 +43,6 @@ export function normalizeSettings(value: Partial<OutlineSettings> & { headingInc
         headingOutlineDisplayMode: value.headingOutlineDisplayMode === "icon" ? "icon" : defaults.headingOutlineDisplayMode,
         headingListDepth,
         hideCompletedTasks: typeof value.hideCompletedTasks === "boolean" ? value.hideCompletedTasks : defaults.hideCompletedTasks,
-        autoTaskSort: value.autoTaskSort === "top" || value.autoTaskSort === "bottom" ? value.autoTaskSort : defaults.autoTaskSort,
         keepCurrentHeadingExpanded: typeof value.keepCurrentHeadingExpanded === "boolean"
             ? value.keepCurrentHeadingExpanded : defaults.keepCurrentHeadingExpanded,
         listOutlineRequireChildren: typeof value.listOutlineRequireChildren === "boolean" ? value.listOutlineRequireChildren : defaults.listOutlineRequireChildren,

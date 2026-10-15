@@ -10,7 +10,6 @@ The plugin provides independently switchable floating heading outline, persisten
 A SiYuan plugin that displays compact outline lines at the upper-right corner of a hovered list. Hover over the lines to expand the labels and depth settings; move away to collapse them.
 
 - Supports ordered, unordered, task, and nested lists.
-- **Task sorting**: The native block menu for a task list or task item offers completed tasks to top/bottom. An item menu sorts its sibling list, preserving order within both groups and keeping each item's descendants and extra content intact. Only `X/x` counts as completed; nested levels are not sorted separately. The global automatic task sorting setting defaults to off and can move completed tasks to the top or bottom after status changes, including unchecking. Changes are debounced, sorting works independently of outline visibility and filtering, and enabling it does not scan existing documents.
 - List entries display bullets, original ordered numbers, or task state markers (to do, done, in progress, canceled, and custom states). Enable "Hide completed tasks" (off by default) to hide completed items across the dock and floating outlines; remaining descendants stay visible at the nearest visible parent level.
 - Outlines remain visible while lists stay in the viewport, and hide automatically when scrolled out of view.
 - Search and filter list items in real time with keyword highlighting; press Escape to clear search, and search resets automatically when collapsed.
