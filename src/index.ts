@@ -10,6 +10,7 @@ import type { HeadingFoldState } from "./headingTree";
 import { HEADING_OUTLINE_ICON, HEADING_OUTLINE_ICON_ID } from "./icons";
 import { DocumentOutlineSettings, type DocumentOutlineOverrides } from "./documentOutlineSettings";
 import { insertOutlineSibling, insertIntoOutlineEditor, type OutlineInsertTarget, type OpenInsertMenu } from "./outlineInsert";
+import { TaskSortController, getTaskListTargets } from "./taskSort";
 
 const SETTINGS_FILE = "settings.json";
 const HEADING_FOLDS_FILE = "heading-folds.json";
@@ -22,6 +23,7 @@ export default class ListOutlinePlugin extends Plugin {
     private headingDock?: HeadingOutlineDockView;
     private headingGutters?: HeadingGutterController;
     private disposed = false;
+    private taskSort?: TaskSortController;
     private settingsQueue: Promise<unknown> = Promise.resolve();
     private headingFoldQueue: Promise<unknown> = Promise.resolve();
     private headingFoldStates: Record<string, HeadingFoldState> = {};
@@ -160,10 +162,18 @@ export default class ListOutlinePlugin extends Plugin {
         if (this.disposed) return;
 
         this.addIcons(HEADING_OUTLINE_ICON);
+        this.taskSort = new TaskSortController({
+            request: this.request,
+            getPosition: () => this.settings.autoTaskSort,
+            canWrite: () => !this.disposed && !window.siyuan.config.editor.readOnly,
+            transactionContext: () => ({ app: this.app.appId, session: this.name }),
+            reportError: message => showMessage(message, 5000, "error"),
+        });
         if (this.settings.enableHeadingDock) this.registerHeadingDock();
 
         for (const event of this.protyleEvents) this.eventBus.on(event, this.onProtyle);
         this.eventBus.on("ws-main", this.onWorkspaceMessage);
+        this.eventBus.on("click-blockicon", this.onTaskBlockMenu);
         this.syncFeatures();
     }
 
@@ -180,13 +190,39 @@ export default class ListOutlinePlugin extends Plugin {
         this.outline?.scheduleSync();
     };
 
-    private onWorkspaceMessage = (event: CustomEvent<{ cmd: string }>) => {
+    private onWorkspaceMessage = (event: CustomEvent<{ cmd: string; data?: unknown }>) => {
+        this.taskSort?.onWorkspaceMessage(event.detail);
         // 原生大纲在 savedoc 后重新读取标题，兼顾同步、撤销和标题编号变更。
         if (["savedoc", "transactions", "reload", "rename"].includes(event.detail.cmd)) {
             this.headingOutline?.scheduleRefresh();
             this.headingDock?.scheduleRefresh();
             this.outline?.scheduleSync();
         }
+    };
+
+    private onTaskBlockMenu = (event: CustomEvent<{ menu: Menu; protyle: IProtyle; blockElements: HTMLElement[] }>) => {
+        const { menu, protyle, blockElements } = event.detail;
+        const ids = getTaskListTargets(blockElements);
+        if (!ids.length) return;
+        const canSort = () => !this.disposed && !protyle.disabled &&
+            !window.siyuan.config.editor.readOnly && !protyle.options?.action?.includes("cb-get-history");
+        menu.addItem({
+            icon: "iconCheck", label: "任务排序", type: "submenu",
+            submenu: (["bottom", "top"] as const).map(position => ({
+                icon: position === "bottom" ? "iconDown" : "iconUp",
+                label: position === "bottom" ? "已完成任务移到底部" : "已完成任务移到顶部",
+                disabled: !canSort(),
+                click: async () => {
+                    if (!canSort()) return;
+                    try {
+                        await this.taskSort?.sortLists(ids, position);
+                    } catch (error) {
+                        console.error("任务列表排序失败", error);
+                        showMessage("任务列表排序失败，请稍后重试。", 5000, "error");
+                    }
+                },
+            })),
+        });
     };
 
     onLayoutReady() {
@@ -288,6 +324,8 @@ export default class ListOutlinePlugin extends Plugin {
 
     onunload() {
         this.disposed = true;
+        this.taskSort?.destroy();
+        this.taskSort = undefined;
         this.insertMenu?.close();
         this.headingLevelMenu?.close();
         this.headingGutters?.destroy();
@@ -299,6 +337,7 @@ export default class ListOutlinePlugin extends Plugin {
         this.unregisterHeadingDock();
         for (const event of this.protyleEvents) this.eventBus.off(event, this.onProtyle);
         this.eventBus.off("ws-main", this.onWorkspaceMessage);
+        this.eventBus.off("click-blockicon", this.onTaskBlockMenu);
         this.dialogs.forEach(dialog => dialog.destroy());
         this.dialogs.clear();
     }
@@ -307,6 +346,7 @@ export default class ListOutlinePlugin extends Plugin {
         const next = normalizeSettings(settings);
         const save = this.settingsQueue.then(async () => {
             await this.saveData(SETTINGS_FILE, next);
+            if (this.settings.autoTaskSort !== next.autoTaskSort) this.taskSort?.refreshSettings();
             this.settings = next;
             if (!this.disposed) this.syncFeatures();
         });

@@ -27,6 +27,9 @@
           title: '大纲增强列表/页签层级（全局默认）', description: '未单独设置的文档使用此层级。大纲设置按钮中的修改只作用于当前文档，自动保存到文档属性；列表块的独立层级设置仍优先生效。' },
         { key: 'hideCompletedTasks', type: 'checkbox', value: settings.hideCompletedTasks,
           title: '隐藏已完成任务（全局默认）', description: '未单独设置的文档使用此开关。当前文档可通过大纲设置按钮单独覆盖；已完成父任务下的未完成子任务仍显示。' },
+        { key: 'autoTaskSort', type: 'select', value: settings.autoTaskSort,
+          options: { off: '关闭', bottom: '已完成任务置底', top: '已完成任务置顶' },
+          title: '自动排序任务列表（全局）', description: '监听任务状态变更，自动将同一列表中已完成的任务移到底部或顶部，保留各组内部顺序和任务子块。默认关闭，独立于大纲显示开关；开启时不批量整理已有文档。' },
         { key: 'defaultDepth', type: 'number', value: settings.defaultDepth,
           title: '列表/页签默认大纲层级', description: `显示前多少层列表项或页签标题，范围 1–${MAX_DEPTH}；单独设置过的块不受影响。` },
     ] as ISettingItem[];
