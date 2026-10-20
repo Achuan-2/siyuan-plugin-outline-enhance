@@ -26,7 +26,7 @@
             [String(depth), depth === 0 ? '不显示列表/页签' : `显示 ${depth} 层列表/页签`])),
           title: '大纲增强列表/页签层级（全局默认）', description: '未单独设置的文档使用此层级。大纲设置按钮中的修改只作用于当前文档，自动保存到文档属性；列表块的独立层级设置仍优先生效。' },
         { key: 'hideCompletedTasks', type: 'checkbox', value: settings.hideCompletedTasks,
-          title: '隐藏已完成任务（全局默认）', description: '未单独设置的文档使用此开关。当前文档可通过大纲设置按钮单独覆盖；已完成父任务下的未完成子任务仍显示。' },
+          title: '隐藏已完成任务（全局默认）', description: '未单独设置的文档使用此开关。当前文档可通过大纲设置按钮单独覆盖；已完成任务及其所有子列表、子任务一并隐藏。' },
         { key: 'defaultDepth', type: 'number', value: settings.defaultDepth,
           title: '列表/页签默认大纲层级', description: `显示前多少层列表项或页签标题，范围 1–${MAX_DEPTH}；单独设置过的块不受影响。` },
     ] as ISettingItem[];

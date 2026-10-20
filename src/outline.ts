@@ -37,20 +37,21 @@ function extractListMetadata(item: Element, list: Element, index: number): Parti
     return subtype === "u" ? { listType: "unordered" } : {};
 }
 
-/** 仅移除完成项；其后代提升到最近的可见父项，避免未完成子任务被一起隐藏。 */
+/** 隐藏已完成任务及其整个后代分支，保留其余条目的原始层级。 */
 export function filterCompletedTasks<T extends OutlineEntry>(entries: T[], hideCompleted: boolean): T[] {
     if (!hideCompleted) return entries;
     const visible: T[] = [];
-    const ancestors: Array<{ depth: number; hidden: boolean }> = [];
-    let hiddenAncestors = 0;
+    let hiddenDepth: number | null = null;
     for (const entry of entries) {
-        while (ancestors.length && ancestors[ancestors.length - 1].depth >= entry.depth) {
-            if (ancestors.pop()!.hidden) hiddenAncestors--;
+        if (hiddenDepth !== null) {
+            if (entry.depth > hiddenDepth) continue;
+            hiddenDepth = null;
         }
-        const hidden = entry.listType === "task" && entry.taskMarker?.toUpperCase() === "X";
-        if (!hidden) visible.push(hiddenAncestors ? { ...entry, depth: entry.depth - hiddenAncestors } : entry);
-        ancestors.push({ depth: entry.depth, hidden });
-        if (hidden) hiddenAncestors++;
+        if (entry.listType === "task" && entry.taskMarker?.toUpperCase() === "X") {
+            hiddenDepth = entry.depth;
+            continue;
+        }
+        visible.push(entry);
     }
     return visible;
 }

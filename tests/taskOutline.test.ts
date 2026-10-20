@@ -15,7 +15,8 @@ const list = (id: string, children: string, subtype = "u") =>
     `<div data-type="NodeList" data-node-id="${id}" data-subtype="${subtype}">${children}</div>`;
 const snapshot = '<div data-type="NodeHeading" data-node-id="heading"></div>' + list("root",
     item("bullet", "u") + item("number", "o", 'data-marker="7)"') +
-    item("done", "t", 'data-task="X"', list("children", item("child", "t", 'data-task=" "'))) +
+    item("done", "t", 'data-task="X"', list("children", item("child", "t", 'data-task=" "') +
+        item("child-bullet", "u", "", list("grandchildren", item("grandchild-number", "o", 'data-marker="3."'))))) +
     item("todo", "t", 'data-task=" "') + item("progress", "t", 'data-task="/"') +
     item("canceled", "t", 'data-task="-"') + item("custom", "t", 'data-task="?"'));
 
@@ -83,7 +84,7 @@ test("列表类型与原始编号、全部任务状态从列表项提取，支�
     assert.equal(extractOutline(document.body.firstElementChild as HTMLElement, 1)[0].taskMarker, "x");
 });
 
-test("隐藏完成任务仅移除 X/x，保留未完成后代、其他任务状态、页签和原始编号", () => {
+test("隐藏 X/x 完成任务及全部后代，保留其他分支的状态、层级和原始编号", () => {
     const entries: OutlineEntry[] = [
         { id: "heading", text: "标题", depth: 1, kind: "heading" },
         { id: "done", text: "完成父项", depth: 2, listType: "task", taskMarker: "X" },
@@ -91,14 +92,22 @@ test("隐藏完成任务仅移除 X/x，保留未完成后代、其他任务状�
         { id: "todo", text: "未完成孙项", depth: 4, listType: "task", taskMarker: " " },
         { id: "tab", text: "页签", depth: 3, kind: "tab" },
         { id: "number", text: "编号", depth: 4, listType: "ordered", listMarker: "8." },
+        { id: "bullet", text: "普通子列表", depth: 3, listType: "unordered" },
         ...["/", "-", "?"].map((taskMarker, index) => ({ id: `status-${index}`, text: "状态", depth: 2,
             listType: "task" as const, taskMarker })),
+        { id: "visible-number", text: "保留编号", depth: 3, listType: "ordered", listMarker: "9." },
+        { id: "done-sibling", text: "另一完成项", depth: 2, listType: "task", taskMarker: "x" },
+        { id: "hidden-child", text: "未完成子项", depth: 3, listType: "task", taskMarker: " " },
+        { id: "next-heading", text: "下一标题", depth: 1, kind: "heading" },
+        { id: "visible-todo", text: "另一分支的未完成项", depth: 2, listType: "task", taskMarker: " " },
     ];
     assert.equal(filterCompletedTasks(entries, false), entries);
     const filtered = filterCompletedTasks(entries, true);
     assert.deepEqual(filtered.map(entry => [entry.id, entry.depth]),
-        [["heading", 1], ["todo", 2], ["tab", 2], ["number", 3], ["status-0", 2], ["status-1", 2], ["status-2", 2]]);
-    assert.equal(filtered.find(entry => entry.id === "number")?.listMarker, "8.");
+        [["heading", 1], ["status-0", 2], ["status-1", 2], ["status-2", 2], ["visible-number", 3],
+            ["next-heading", 1], ["visible-todo", 2]]);
+    assert.equal(filtered.find(entry => entry.id === "visible-number")?.listMarker, "9.");
+    assert.ok(filtered.every(entry => entries.includes(entry)));
     assert.equal(entries[3].depth, 4);
     assert.equal(normalizeSettings().hideCompletedTasks, false);
     assert.equal(normalizeSettings(JSON.parse(JSON.stringify(normalizeSettings({ hideCompletedTasks: true })))).hideCompletedTasks, true);
@@ -124,6 +133,8 @@ for (const surface of ["dock", "heading", "list"] as const) {
             await waitFor(() => !!env.panel.querySelector('[data-id="heading"], [data-id="bullet"]'));
             env.expand();
             await waitFor(() => !!env.panel.querySelector('[data-id="done"]'));
+            const descendants = ["child", "child-bullet", "grandchild-number"];
+            for (const id of descendants) assert.ok(env.panel.querySelector(`[data-id="${id}"]`));
             const marker = (id: string) => env.panel.querySelector(`[data-id="${id}"] .outline-entry__marker`);
             assert.equal(marker("bullet")?.textContent, "•");
             assert.equal(marker("number")?.textContent, "7)");
@@ -133,9 +144,17 @@ for (const surface of ["dock", "heading", "list"] as const) {
             assert.equal(marker("custom")?.textContent, "[?]");
             env.setHide(true);
             await waitFor(() => !env.panel.querySelector('[data-id="done"]'));
-            assert.ok(env.panel.querySelector('[data-id="child"]'));
+            for (const id of descendants) assert.equal(env.panel.querySelector(`[data-id="${id}"]`), null);
             assert.ok(env.panel.querySelector('[data-id="canceled"]'));
             assert.equal(marker("number")?.textContent, "7)");
+
+            // 父任务取消完成后，整条分支恢复；再次完成时后代一起隐藏。
+            const done = env.editor.content.querySelector<HTMLElement>('[data-node-id="done"]')!;
+            done.dataset.task = " ";
+            await waitFor(() => descendants.every(id => !!env.panel.querySelector(`[data-id="${id}"]`)));
+            done.dataset.task = "x";
+            await waitFor(() => !env.panel.querySelector('[data-id="done"]'));
+            for (const id of descendants) assert.equal(env.panel.querySelector(`[data-id="${id}"]`), null);
 
             // 仅修改属性：验证监听 data-task，不依赖正文文本或子节点变化。
             const todo = env.editor.content.querySelector<HTMLElement>('[data-node-id="todo"]')!;
@@ -146,6 +165,7 @@ for (const surface of ["dock", "heading", "list"] as const) {
             assert.match(env.panel.querySelector('[data-id="todo"]')!.getAttribute("aria-label")!, /进行中/);
             env.setHide(false);
             await waitFor(() => !!env.panel.querySelector('[data-id="done"]'));
+            for (const id of descendants) assert.ok(env.panel.querySelector(`[data-id="${id}"]`));
         } finally { env.cleanup(); }
     });
 }

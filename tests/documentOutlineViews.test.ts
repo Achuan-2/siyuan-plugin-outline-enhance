@@ -83,7 +83,8 @@ test("两个大纲共享文档属性，快捷设置只修改当前文档，切�
         let controls = open(container);
         controls.hide.click();
         await waitFor(() => !controls.hide.disabled && !container.querySelector('[data-id="done"]') && !floating.querySelector('[data-id="done"]'));
-        assert.ok(container.querySelector('[data-id="todo"]'));
+        assert.equal(container.querySelector('[data-id="todo"]'), null);
+        assert.equal(floating.querySelector('[data-id="todo"]'), null);
         assert.equal(global.hideCompletedTasks, false);
         assert.equal(attrs.first[HIDE], "true");
         controls.depth.value = "0";
