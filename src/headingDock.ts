@@ -146,7 +146,7 @@ export class HeadingOutlineDockView {
         });
         this.quickSettings.button.disabled = true;
 
-        this.keepCurrentExpandButton = createToolbarButton("保存当前层级展开", "iconFocus", "keep-current-expand", async () => {
+        this.keepCurrentExpandButton = createToolbarButton("保存当前层级展开", "iconPin", "keep-current-expand", async () => {
             const enabled = !this.settings.keepCurrentHeadingExpanded;
             this.keepCurrentExpandButton!.disabled = true;
             try {
@@ -162,6 +162,8 @@ export class HeadingOutlineDockView {
             }
         });
         this.syncKeepCurrentExpandButton();
+        const openCurrentLevelBtn = createToolbarButton("打开当前层级", "iconFocus", "open-current-level",
+            () => this.openCurrentLevel());
         const expandLevelBtn = createToolbarButton("展开标题层级", "iconExpandLevel", "expand-level", (button, event) => {
             // 思源会在全局 click 处理器中关闭菜单；阻止本次点击继续冒泡，
             // 否则刚打开的标题层级菜单会在同一次点击中立即被关闭。
@@ -179,7 +181,7 @@ export class HeadingOutlineDockView {
         minimizeBtn.dataset.type = "min";
 
         this.header.append(logo, space);
-        this.header.append(this.keepCurrentExpandButton, expandLevelBtn, expandAllBtn, collapseAllBtn, refreshBtn);
+        this.header.append(this.keepCurrentExpandButton, openCurrentLevelBtn, expandLevelBtn, expandAllBtn, collapseAllBtn, refreshBtn);
         if (!this.options.isMobile?.()) this.header.append(minimizeBtn);
 
         this.documentTitle.type = "button";
@@ -396,6 +398,19 @@ export class HeadingOutlineDockView {
             this.render();
         }
         void this.refresh();
+    }
+
+    private openCurrentLevel() {
+        if (!this.editor || this.disposed) return;
+        this.currentEntryId = this.resolveCurrentID(new Set(this.entries.map(entry => entry.id)));
+        if (!this.currentEntryId) return;
+        // 仅打开本次定位所需的路径，不修改持续跟随开关或其他分支的折叠状态。
+        if (expandCollapsedAncestors(this.entries, this.currentEntryId, this.collapsedEntryIds,
+            this.expandedListEntryIds, this.expandedTabIds)) {
+            this.saveFoldState();
+            this.render();
+        }
+        this.highlight(true);
     }
 
     private expandAll() {

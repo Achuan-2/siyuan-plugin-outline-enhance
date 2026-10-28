@@ -498,6 +498,81 @@ test("大纲增强 Dock：支持全部折叠、全部展开和按实际标题级
     } finally { env.cleanup(); }
 });
 
+test("大纲增强 Dock：打开当前层级只展开一次，保留其他分支并允许重新折叠", async () => {
+    const env = setup(async url => url.endsWith("getDocOutline") ? [tree[0], {
+        id: "h2", name: "第二章", subType: "h2", blocks: [
+            { id: "other", name: "其他分支", subType: "h3" },
+        ],
+    }] : null);
+    try {
+        await settle();
+        const ids = () => Array.from(env.container.querySelectorAll<HTMLButtonElement>("button[data-id]"))
+            .map(row => row.dataset.id);
+        const current = env.win.document.createElement("div");
+        current.dataset.type = "NodeHeading";
+        current.dataset.nodeId = "h6";
+        env.editors[0].content.append(current);
+        current.click();
+        const collapseAll = env.container.querySelector<HTMLButtonElement>('button[data-action="collapse-all"]')!;
+        collapseAll.click();
+        assert.deepEqual(ids(), ["h1", "h2"]);
+
+        const open = env.container.querySelector<HTMLButtonElement>('button[data-action="open-current-level"]')!;
+        const keep = env.container.querySelector<HTMLButtonElement>('button[data-action="keep-current-expand"]')!;
+        assert.equal(open.getAttribute("aria-label"), "打开当前层级");
+        assert.equal(open.querySelector("use")?.getAttribute("href"), "#iconFocus");
+        assert.equal(keep.querySelector("use")?.getAttribute("href"), "#iconPin");
+        open.click();
+        assert.deepEqual(ids(), ["h1", "h3", "h6", "h2"]);
+        assert.equal(env.container.querySelector('[aria-current="location"]')?.getAttribute("data-id"), "h6");
+        assert.equal(keep.getAttribute("aria-pressed"), "false");
+        assert.equal(env.foldStates.doc1.showLists, false);
+
+        env.container.querySelector<HTMLButtonElement>('[data-outline-toggle="h1"]')!.click();
+        current.click();
+        env.dock.syncEditors();
+        await env.dock.refresh();
+        assert.deepEqual(ids(), ["h1", "h2"]);
+        open.click();
+        assert.deepEqual(ids(), ["h1", "h3", "h6", "h2"]);
+        collapseAll.click();
+        env.editors[0].content.querySelector<HTMLElement>('[data-node-id="h1"]')!.click();
+        open.click();
+        assert.deepEqual(ids(), ["h1", "h2"]);
+        assert.equal(keep.getAttribute("aria-pressed"), "false");
+    } finally { env.cleanup(); }
+});
+
+test("大纲增强 Dock：一次性打开页签内列表路径，不展开其他页签", async () => {
+    const tab = (id: string, item: string) => `<div data-type="NodeTabItem" data-node-id="${id}">` +
+        `<div class="tab-item-info"><div class="tab-item-title" contenteditable="true">${id}</div></div>` +
+        `<div class="tab-item-content"><div data-type="NodeList" data-node-id="${id}-list">` +
+        `<div data-type="NodeListItem" data-node-id="${item}"><div data-type="NodeParagraph">` +
+        `<div contenteditable="true">${item}</div></div></div></div></div></div>`;
+    const snapshot = '<div data-type="NodeHeading" data-node-id="h1"></div>' +
+        `<div data-type="NodeTabs" data-node-id="tabs">${tab("tab-one", "item-one")}${tab("tab-two", "item-two")}</div>`;
+    const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } :
+        [{ id: "h1", name: "标题", subType: "h1" }], false, true, { headingListDepth: 3 });
+    try {
+        env.editors[0].content.innerHTML = snapshot;
+        await settle();
+        await env.dock.refresh();
+        const ids = () => Array.from(env.container.querySelectorAll<HTMLButtonElement>("button[data-id]"))
+            .map(row => row.dataset.id);
+        env.container.querySelector<HTMLButtonElement>('button[data-action="collapse-all"]')!.click();
+        const current = env.editors[0].content.querySelector<HTMLElement>('[data-node-id="item-one"] [contenteditable]')!;
+        current.click();
+        assert.deepEqual(ids(), ["h1"]);
+        env.container.querySelector<HTMLButtonElement>('button[data-action="open-current-level"]')!.click();
+        assert.deepEqual(ids(), ["h1", "tab-one", "item-one", "tab-two"]);
+        assert.deepEqual(env.foldStates.doc1.expandedTabIds, ["tab-one"]);
+        assert.equal(env.container.querySelector('[aria-current="location"]')?.getAttribute("data-id"), "item-one");
+        env.container.querySelector<HTMLButtonElement>('[data-outline-toggle="tab-one"]')!.click();
+        current.click();
+        assert.deepEqual(ids(), ["h1", "tab-one", "tab-two"]);
+    } finally { env.cleanup(); }
+});
+
 test("大纲增强 Dock：默认只显示标题，单独展开标题可显示列表并记住状态", async () => {
     const snapshot = '<div data-type="NodeHeading" data-node-id="h1"></div>' +
         '<div data-type="NodeHeading" data-node-id="h3"></div>' +
