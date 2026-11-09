@@ -170,7 +170,6 @@
     [data-type~="s"] {  text-decoration: line-through; }
     [data-type~="u"] { border-bottom: 1px solid; }
     [data-type~="mark"] { color: var(--b3-protyle-inline-mark-color); background: var(--b3-protyle-inline-mark-background); }
-    [data-type~="tag"] { color: var(--b3-protyle-inline-tag-color); border-bottom: 1px solid; padding: 0 1px; }
     [data-type~="a"] { color: var(--b3-protyle-inline-link-color); }
     [data-type~="block-ref"] { color: var(--b3-protyle-inline-blockref-color); opacity: .86; }
     [data-type~="file-annotation-ref"] { color: var(--b3-protyle-inline-fileref-color); opacity: .86; }
