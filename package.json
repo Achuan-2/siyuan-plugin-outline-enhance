@@ -1,6 +1,6 @@
 {
   "name": "siyuan-plugin-list-outline",
-  "version": "0.0.1",
+  "version": "0.2.6",
   "type": "module",
   "description": "思源笔记悬浮标题与列表大纲，文字单行省略，支持列表块独立层级设置",
   "repository": "",
