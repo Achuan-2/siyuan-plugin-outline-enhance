@@ -9,14 +9,14 @@
     let saving = false;
     $: items = [
         { key: 'enableHeadingOutline', type: 'checkbox', value: settings.enableHeadingOutline,
-          title: '悬浮大纲增强', description: '在当前文档右侧显示悬浮标题目录，悬停线条展开内容，点击定位标题。' },
+          title: '悬浮大纲增强', description: '在当前文档右侧显示悬浮标题目录，点击入口展开，再点击条目定位。' },
         { key: 'enableHeadingDock', type: 'checkbox', value: settings.enableHeadingDock,
           title: '右侧大纲增强 Dock', description: '在右侧栏注册一个独立的大纲增强 Dock 面板，持久常驻显示当前文档大纲。' },
         { key: 'enableHeadingGutters', type: 'checkbox', value: settings.enableHeadingGutters,
           title: '常驻标题块标与折叠按钮', description: '在编辑区各级标题前常驻显示 H1–H6 块标和折叠按钮，位置与思源官方块标一致；点击使用思源原生块菜单与折叠操作。' },
         { key: 'headingOutlineDisplayMode', type: 'select', value: settings.headingOutlineDisplayMode,
           options: { compact: '省略列表型', icon: '图标型' },
-          title: '电脑端悬浮大纲增强样式', description: '选择省略列表型，或使用和移动端相同的单按钮样式；按钮可悬浮或点击展开大纲增强。' },
+          title: '电脑端悬浮大纲增强样式', description: '选择省略列表型，或使用和移动端相同的单按钮样式；点击入口展开大纲增强。' },
         { key: 'enableListOutline', type: 'checkbox', value: settings.enableListOutline,
           title: '悬浮列表/页签大纲', description: '正文或嵌入块中的列表、页签处于可视区域内时，在右侧显示列表项或页签标题；不提取引述块中的内容。' },
         { key: 'listOutlineRequireChildren', type: 'checkbox', value: settings.listOutlineRequireChildren,

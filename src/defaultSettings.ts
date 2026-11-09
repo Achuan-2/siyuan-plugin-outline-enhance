@@ -40,7 +40,8 @@ export function normalizeSettings(value: Partial<OutlineSettings> & { headingInc
         enableHeadingOutline: typeof value.enableHeadingOutline === "boolean" ? value.enableHeadingOutline : defaults.enableHeadingOutline,
         enableHeadingDock: typeof value.enableHeadingDock === "boolean" ? value.enableHeadingDock : defaults.enableHeadingDock,
         enableHeadingGutters: typeof value.enableHeadingGutters === "boolean" ? value.enableHeadingGutters : defaults.enableHeadingGutters,
-        headingOutlineDisplayMode: value.headingOutlineDisplayMode === "icon" ? "icon" : defaults.headingOutlineDisplayMode,
+        headingOutlineDisplayMode: value.headingOutlineDisplayMode === "icon" || value.headingOutlineDisplayMode === "compact"
+            ? value.headingOutlineDisplayMode : defaults.headingOutlineDisplayMode,
         headingListDepth,
         hideCompletedTasks: typeof value.hideCompletedTasks === "boolean" ? value.hideCompletedTasks : defaults.hideCompletedTasks,
         keepCurrentHeadingExpanded: typeof value.keepCurrentHeadingExpanded === "boolean"

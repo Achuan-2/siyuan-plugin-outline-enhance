@@ -159,7 +159,7 @@ test("悬浮大纲增强：展开层级菜单控制标题、列表和页签并�
         assert.deepEqual(ids(), ["h1", "h2"]);
         assert.deepEqual(env.foldStates.doc1.collapsedIds, ["h1", "h3", "h6", "h2"]);
         env.levelMenus.at(-1)!.onClose!();
-        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
 
         button.click();
         assert.equal(env.levelMenus.at(-1)!.currentLevel, 1);
@@ -726,15 +726,15 @@ test("标题 HTML 保留行内结构，搜索文本保留转义字符与图片�
     } finally { env.cleanup(); }
 });
 
-test("使用文档 ID 请求完整大纲，悬停展开，折叠标题使用原生折叠检查后导航", async () => {
-    const env = setup();
+test("使用文档 ID 请求完整大纲，点击省略线条展开，折叠标题使用原生折叠检查后导航", async () => {
+    const env = setup(undefined, false, true, { headingOutlineDisplayMode: "compact" });
     try {
         await settle();
         assert.deepEqual(env.calls[0], { url: "/api/outline/getDocOutline", data: { id: "doc1", preview: false, notebook: "notebook1" } });
         assert.equal(env.panel.querySelectorAll('.list-outline-floating__item').length, 4);
         assert.equal(env.panel.querySelector('[data-id="h3"] .list-outline-floating__text')?.textContent, "三级标题");
         assert.equal(env.panel.style.width, "48px");
-        assert.equal(env.panel.style.left, "698px");
+        assert.equal(env.panel.style.left, "722px");
         assert.equal(env.panel.classList.contains("heading-outline-floating--icon"), false);
         const locate = env.panel.querySelector<HTMLButtonElement>('button[aria-label="定位当前位置"]')!;
         const refresh = env.panel.querySelector<HTMLButtonElement>('button[aria-label="刷新大纲增强"]')!;
@@ -751,17 +751,22 @@ test("使用文档 ID 请求完整大纲，悬停展开，折叠标题使用原�
         });
         assert.equal(scrollCount, 0);
         env.panel.dispatchEvent(new env.win.MouseEvent("pointerenter"));
+        assert.equal(scrollCount, 0);
+        env.panel.querySelector<HTMLButtonElement>('[data-id="h6"]')!.click();
+        assert.deepEqual(env.navigations, []);
         assert.equal(scrollCount, 1);
         assert.equal(env.panel.style.width, "300px");
         close.click();
         assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
         assert.equal(env.panel.style.width, "48px");
-        env.panel.dispatchEvent(new env.win.MouseEvent("pointerenter"));
+        env.panel.querySelector<HTMLButtonElement>('[data-id="h6"]')!.click();
         env.panel.querySelector<HTMLButtonElement>('[data-id="h6"]')!.click();
         await settle();
         assert.deepEqual(env.navigations, [{ id: "h6", folded: true }]);
         assert.equal(env.calls.at(-1)?.url, "/api/block/checkBlockFold");
         env.panel.dispatchEvent(new env.win.MouseEvent("pointerleave"));
+        assert.equal(env.panel.style.width, "300px");
+        env.win.document.body.click();
         assert.equal(env.panel.style.width, "48px");
         assert.equal(scrollCount, 2);
     } finally { env.cleanup(); }
@@ -795,7 +800,7 @@ test("悬浮大纲增强跟随鼠标所在块高亮，定位当前块后同步�
         env.panel.querySelectorAll<HTMLElement>("button[data-id]").forEach(row => {
             row.scrollIntoView = () => { autoScrolledId = row.dataset.id || ""; };
         });
-        env.panel.dispatchEvent(new env.win.MouseEvent("pointerenter"));
+        env.panel.querySelector<HTMLButtonElement>(".heading-outline-floating__toggle")!.click();
         assert.equal(env.panel.querySelector(".list-outline-floating__current")?.getAttribute("data-id"), "h6");
         assert.equal(autoScrolledId, "h6");
 
@@ -819,17 +824,38 @@ test("电脑端悬浮大纲增强支持在线切换省略列表型与图标型",
         await settle();
         assert.equal(env.panel.classList.contains("heading-outline-floating--icon"), true);
         assert.equal(env.panel.style.width, "52px");
+        assert.equal(env.panel.style.left, "718px");
         const toggle = env.panel.querySelector<HTMLButtonElement>(".heading-outline-floating__toggle")!;
         assert.equal(toggle.hidden, false);
+        env.panel.dispatchEvent(new env.win.MouseEvent("pointerenter"));
+        toggle.focus();
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
         toggle.click();
         assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
         assert.equal(env.panel.style.width, "300px");
         assert.equal(toggle.hidden, true);
         env.panel.dispatchEvent(new env.win.MouseEvent("pointerleave"));
+        env.panel.dispatchEvent(new env.win.FocusEvent("focusout", { bubbles: true }));
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
+        env.win.document.body.click();
         assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
         env.setSettings({ headingOutlineDisplayMode: "compact" });
+        await settle();
         assert.equal(env.panel.classList.contains("heading-outline-floating--icon"), false);
         assert.ok(env.panel.querySelector(".list-outline-floating__line"));
+        env.panel.querySelector<HTMLButtonElement>('[data-id="h1"]')!.click();
+        assert.deepEqual(env.navigations, []);
+        const settingsButton = env.panel.querySelector<HTMLButtonElement>('[data-action="outline-settings"]')!;
+        settingsButton.click();
+        const select = env.win.document.querySelector<HTMLSelectElement>('.outline-quick-settings select')!;
+        select.click();
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
+        env.win.document.body.click();
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
+        assert.equal(env.win.document.querySelector('.outline-quick-settings'), null);
+        env.panel.querySelector<HTMLButtonElement>('[data-id="h1"]')!.click();
+        env.win.document.dispatchEvent(new env.win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
     } finally { env.cleanup(); }
 });
 
@@ -973,7 +999,7 @@ test("预览模式直接定位预览标题，关闭编辑器后隐藏目录", as
     } finally { env.cleanup(); }
 });
 
-test("大纲增强右键打开菜单时离开大纲不收起，菜单关闭后恢复收起", async () => {
+test("大纲增强右键菜单关闭后保持展开，点击外部收起", async () => {
     const env = setup();
     try {
         let closeMenu: () => void = () => {};
@@ -995,6 +1021,8 @@ test("大纲增强右键打开菜单时离开大纲不收起，菜单关闭后�
 
         closeMenu();
         await settle();
+        assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), true);
+        env.win.document.body.click();
         assert.equal(env.panel.classList.contains("list-outline-floating--expanded"), false);
     } finally { env.cleanup(); }
 });

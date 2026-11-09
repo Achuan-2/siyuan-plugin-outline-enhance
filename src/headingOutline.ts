@@ -55,7 +55,7 @@ interface OutlineDragState {
     position?: HeadingDropPosition;
 }
 
-const DESKTOP_FLOATING_RIGHT_GAP = 48;
+const DESKTOP_FLOATING_RIGHT_GAP = 24;
 const DESKTOP_FLOATING_BUTTON_TOP_OFFSET = 40;
 
 /** 数据与跳转流程参考思源 layout/dock/Outline.ts；面板使用插件自己的悬浮视图。 */
@@ -144,10 +144,6 @@ export class HeadingOutlineController {
                 if (!this.disposed && this.editor?.rootID === rootID) this.expandToHeadingLevel(level);
             }, () => {
                 this.menuOpen = false;
-                if (this.disposed) return;
-                if (!this.panel.matches(":hover") && !(document.activeElement && this.panel.contains(document.activeElement))) {
-                    this.setExpanded(false);
-                }
             });
             // 新菜单打开时会先关闭旧菜单，随后再标记状态，避免旧回调清掉新状态。
             this.menuOpen = true;
@@ -190,8 +186,6 @@ export class HeadingOutlineController {
             onOpenChange: open => {
                 this.menuOpen = open;
                 if (open) this.setExpanded(true);
-                else if (!this.disposed && !this.panel.matches(":hover") &&
-                    !(document.activeElement && this.panel.contains(document.activeElement))) this.setExpanded(false);
             },
         });
         this.quickSettings.button.disabled = true;
@@ -204,22 +198,14 @@ export class HeadingOutlineController {
         this.panel.append(toggle, header, this.body, this.status);
         this.panel.hidden = true;
         document.body.append(this.panel);
-        if (!this.mobile) {
-            this.panel.addEventListener("pointerenter", () => this.setExpanded(true));
-            this.panel.addEventListener("pointerleave", () => {
-                if (this.menuOpen || this.dragState?.dragging) return;
-                this.setExpanded(false);
-            });
-        } else {
-            document.addEventListener("click", this.onDocumentClick);
-        }
-        if (!this.mobile) {
-            this.panel.addEventListener("focusin", () => this.setExpanded(true));
-            this.panel.addEventListener("focusout", event => {
-                if (this.menuOpen || this.dragState?.dragging) return;
-                if (!(event.relatedTarget instanceof Node && this.panel.contains(event.relatedTarget)) && !this.panel.matches(":hover")) this.setExpanded(false);
-            });
-        }
+        // 省略列表型的线条也是展开入口，第一次点击只展开，不触发条目跳转。
+        this.panel.addEventListener("click", event => {
+            if (this.mobile || this.iconMode || this.expanded) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.setExpanded(true);
+        }, true);
+        document.addEventListener("click", this.onDocumentClick);
         this.body.addEventListener("click", this.onClick);
         this.body.addEventListener("contextmenu", this.onContextMenu);
         this.body.addEventListener("mousedown", this.onOutlineMouseDown);
@@ -290,7 +276,8 @@ export class HeadingOutlineController {
     };
 
     private onDocumentClick = (event: MouseEvent) => {
-        if (!this.mobile || !this.expanded || !(event.target instanceof Node) || this.panel.contains(event.target) ||
+        if (!this.expanded || (this.menuOpen && !this.quickSettings.isOpen) || this.dragState?.dragging ||
+            !(event.target instanceof Node) || this.panel.contains(event.target) ||
             this.quickSettings.contains(event.target)) return;
         this.setExpanded(false);
     };
@@ -725,10 +712,6 @@ export class HeadingOutlineController {
             if (!this.disposed && this.editor?.rootID === rootID) void this.refresh();
         }, () => {
             this.menuOpen = false;
-            if (this.disposed) return;
-            if (!this.panel.matches(":hover") && !(document.activeElement && this.panel.contains(document.activeElement))) {
-                this.setExpanded(false);
-            }
         });
     };
 
