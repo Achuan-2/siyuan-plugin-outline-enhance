@@ -820,9 +820,9 @@ export class HeadingOutlineController {
         return preceding;
     }
 
-    private setCurrent(id: string) {
+    private setCurrent(id: string, expandAncestors = false) {
         this.currentEntryId = id && this.entries.some(entry => entry.id === id) ? id : "";
-        if (this.currentEntryId && this.settings.keepCurrentHeadingExpanded &&
+        if (this.currentEntryId && (expandAncestors || this.settings.keepCurrentHeadingExpanded) &&
             expandCollapsedAncestors(this.entries, this.currentEntryId, this.collapsedEntryIds,
                 this.expandedListEntryIds, this.expandedTabIds)) {
             this.saveFoldState();
@@ -865,7 +865,8 @@ export class HeadingOutlineController {
 
         if (!targetId) return null;
 
-        this.setCurrent(targetId);
+        // 手动定位始终单次展开目标路径，不依赖持续跟随设置。
+        this.setCurrent(targetId, true);
         const targetRow = this.body.querySelector<HTMLElement>(`button[data-id="${targetId}"]`);
         if (targetRow) {
             targetRow.scrollIntoView?.({ block: "center", behavior: "smooth" });

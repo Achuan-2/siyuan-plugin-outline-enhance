@@ -816,6 +816,56 @@ test("悬浮大纲增强跟随鼠标所在块高亮，定位当前块后同步�
     } finally { env.cleanup(); }
 });
 
+for (const inTab of [false, true]) {
+    test(`悬浮大纲定位当前位置单次展开${inTab ? "页签内" : "标题下"}列表路径`, async () => {
+        const headings = [
+            { id: "h1", name: "当前章节", subType: "h1" },
+            { id: "h2", name: "其他章节", subType: "h1" },
+        ];
+        const nestedList = listRoot(listDOM("parent", "父列表项", listRoot(listDOM("target", "当前位置"))));
+        const snapshot = '<div data-type="NodeHeading" data-node-id="h1"></div>' +
+            (inTab ? tabsRoot("tabs", tabDOM("tab", "页签", nestedList)) : nestedList) +
+            '<div data-type="NodeHeading" data-node-id="h2"></div>' + listRoot(listDOM("other", "其他列表"));
+        const env = setup(async url => url.endsWith("getBlockDOM") ? { dom: snapshot } : headings,
+            false, true, { headingListDepth: 3, keepCurrentHeadingExpanded: false });
+        try {
+            await settle();
+            env.editors[0].content.innerHTML = snapshot;
+            await settle();
+            await env.controller.refresh();
+            env.panel.querySelector<HTMLButtonElement>(".heading-outline-floating__toggle")!.click();
+            env.panel.querySelector<HTMLButtonElement>('button[aria-label="展开层级"]')!.click();
+            env.levelMenus.at(-1)!.selectLevel(1);
+            env.levelMenus.at(-1)!.onClose?.();
+            const target = env.editors[0].content.querySelector('[data-node-id="target"] [contenteditable]')!;
+            const range = env.win.document.createRange();
+            range.selectNodeContents(target);
+            range.collapse(true);
+            env.win.document.getSelection()!.removeAllRanges();
+            env.win.document.getSelection()!.addRange(range);
+
+            let scrolledId = "";
+            env.win.HTMLElement.prototype.scrollIntoView = function () { scrolledId = this.dataset.id || ""; };
+            const locate = env.panel.querySelector<HTMLButtonElement>('button[aria-label="定位当前位置"]')!;
+            locate.click();
+            assert.equal(env.panel.querySelector(".list-outline-floating__current")?.getAttribute("data-id"), "target");
+            assert.equal(scrolledId, "target");
+            assert.ok(env.foldStates.doc1.collapsedIds.includes("h2"));
+            assert.equal(env.foldStates.doc1.collapsedIds.includes("h1"), false);
+            assert.equal(env.panel.querySelector('[data-id="other"]'), null);
+            if (inTab) assert.deepEqual(env.foldStates.doc1.expandedTabIds, ["tab"]);
+            assert.deepEqual(env.navigations, []);
+
+            // 单次定位之后仍可手动收起，普通同步不会持续展开。
+            env.panel.querySelector<HTMLButtonElement>('button[data-outline-toggle="parent"]')!.click();
+            env.controller.syncEditors();
+            assert.equal(env.panel.querySelector('[data-id="target"]'), null);
+            locate.click();
+            assert.ok(env.panel.querySelector('[data-id="target"]'));
+        } finally { env.cleanup(); }
+    });
+}
+
 test("电脑端悬浮大纲增强支持在线切换省略列表型与图标型", async () => {
     const env = setup();
     try {
